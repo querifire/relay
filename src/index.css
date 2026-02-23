@@ -9,39 +9,55 @@ html {
 }
 
 :root {
-  --color-surface: #FFFFFF;
-  --color-surface-card: #FFFFFF;
-  --color-surface-hover: #F8F8F9;
-  --color-foreground: #1C1C1E;
-  --color-foreground-muted: #86868B;
-  --color-foreground-tertiary: #C7C7CC;
-  --color-border: #EBEBF0;
-  --color-border-focus: #D1D1D6;
+  --color-surface: #faf8f5;
+  --color-surface-card: #ffffff;
+  --color-surface-hover: #f2ece7;
+  --color-foreground: #1e1208;
+  --color-foreground-muted: #7e6e62;
+  --color-foreground-tertiary: #b8a898;
+  --color-border: rgba(160, 95, 40, 0.16);
+  --color-border-focus: rgba(232, 158, 107, 0.55);
 
   --accent-start: #E8C19D;
   --accent-mid: #E89E6B;
   --accent-end: #D95B5B;
 
-  --shadow-card: 0 2px 8px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.02);
-  --shadow-float: 0 8px 24px rgba(0,0,0,0.06);
+  --shadow-card: 0 2px 8px rgba(120,60,20,0.06), 0 1px 2px rgba(120,60,20,0.04);
+  --shadow-float: 0 8px 24px rgba(120,60,20,0.1);
+
+  /* Layout decoration variables */
+  --layout-dot-color: rgba(160, 90, 30, 0.07);
+  --layout-noise-opacity: 0.012;
+  --layout-orb1: rgba(232, 158, 107, 0.07);
+  --layout-orb2: rgba(217, 91, 91, 0.05);
+  --sidebar-bg: rgba(250, 247, 244, 0.88);
+  --sidebar-border: rgba(160, 95, 40, 0.15);
 }
 
 [data-theme="dark"] {
-  --color-surface: #0d0d0d;
-  --color-surface-card: #1a1a1a;
-  --color-surface-hover: #262626;
-  --color-foreground: #e5e5e5;
-  --color-foreground-muted: #a3a3a3;
-  --color-foreground-tertiary: #525252;
-  --color-border: #2a2a2a;
-  --color-border-focus: #404040;
+  --color-surface: #0d0a08;
+  --color-surface-card: #171210;
+  --color-surface-hover: #1f1a17;
+  --color-foreground: #f0ebe6;
+  --color-foreground-muted: #9a8e86;
+  --color-foreground-tertiary: #574e48;
+  --color-border: rgba(232, 158, 107, 0.14);
+  --color-border-focus: rgba(232, 158, 107, 0.45);
 
   --accent-start: #E8C19D;
   --accent-mid: #E89E6B;
   --accent-end: #D95B5B;
 
-  --shadow-card: 0 2px 8px rgba(0,0,0,0.15), 0 1px 2px rgba(0,0,0,0.1);
-  --shadow-float: 0 8px 24px rgba(0,0,0,0.3);
+  --shadow-card: 0 2px 16px rgba(0,0,0,0.4), 0 1px 3px rgba(0,0,0,0.3);
+  --shadow-float: 0 8px 32px rgba(0,0,0,0.6);
+
+  /* Layout decoration variables */
+  --layout-dot-color: rgba(232, 158, 107, 0.09);
+  --layout-noise-opacity: 0.025;
+  --layout-orb1: rgba(232, 158, 107, 0.055);
+  --layout-orb2: rgba(217, 91, 91, 0.05);
+  --sidebar-bg: rgba(13, 10, 8, 0.75);
+  --sidebar-border: rgba(232, 158, 107, 0.13);
 }
 
 * {
@@ -119,8 +135,12 @@ select {
   background: white;
 }
 
+[data-theme="dark"] .toggle-switch.on {
+  background: linear-gradient(135deg, var(--accent-mid), var(--accent-end));
+}
+
 [data-theme="dark"] .toggle-switch.on::after {
-  background: var(--color-surface);
+  background: white;
 }
 
 [data-theme="dark"] .toggle-switch::after {
@@ -195,7 +215,7 @@ input[type="checkbox"].toggle:checked::after {
 }
 
 [data-theme="dark"] .overview-glow::before {
-  opacity: 0.2;
+  opacity: 0.28;
 }
 
 .chart-bar {
@@ -213,6 +233,22 @@ input[type="checkbox"].toggle:checked::after {
   background: linear-gradient(to top, var(--accent-mid), var(--accent-end));
 }
 
+[data-theme="dark"] .chart-bar {
+  background: rgba(232,158,107,0.12);
+}
+
+[data-theme="dark"] .chart-bar:hover {
+  background: rgba(232,158,107,0.22);
+}
+
+[data-theme="light"] .chart-bar {
+  background: rgba(160,90,30,0.1);
+}
+
+[data-theme="light"] .chart-bar:hover {
+  background: rgba(160,90,30,0.18);
+}
+
 .metrics-glow::before {
   content: '';
   position: absolute;
@@ -227,7 +263,7 @@ input[type="checkbox"].toggle:checked::after {
 }
 
 [data-theme="dark"] .metrics-glow::before {
-  opacity: 0.12;
+  opacity: 0.18;
 }
 
 .latency-bar {
@@ -239,7 +275,11 @@ input[type="checkbox"].toggle:checked::after {
 }
 
 [data-theme="dark"] .latency-bar {
-  background: var(--color-border);
+  background: rgba(232,158,107,0.1);
+}
+
+[data-theme="light"] .latency-bar {
+  background: rgba(160,90,30,0.08);
 }
 
 .latency-bar.high {
@@ -256,7 +296,68 @@ input[type="checkbox"].toggle:checked::after {
 }
 
 [data-theme="dark"] .method-badge {
-  background: var(--color-border);
+  background: rgba(232,158,107,0.1);
+  color: rgba(232,158,107,0.8);
+}
+
+[data-theme="light"] .method-badge {
+  background: rgba(160,90,30,0.08);
+  color: #a0621e;
+}
+
+/* Accent gradient buttons — both themes */
+button.bg-foreground,
+.btn-accent {
+  background: linear-gradient(135deg, var(--accent-mid), var(--accent-end)) !important;
+  color: white !important;
+}
+
+button.bg-foreground:hover,
+.btn-accent:hover {
+  opacity: 0.88;
+  transform: translateY(-1px);
+}
+
+/* Light theme: toggle switch accent */
+[data-theme="light"] .toggle-switch.on {
+  background: linear-gradient(135deg, var(--accent-mid), var(--accent-end));
+}
+
+[data-theme="light"] .toggle-switch.on::after {
+  background: white;
+}
+
+/* Scrollbar — both themes use accent color */
+::-webkit-scrollbar-thumb {
+  background: rgba(180, 110, 50, 0.2);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(180, 110, 50, 0.35);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: rgba(232, 158, 107, 0.2);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: rgba(232, 158, 107, 0.4);
+}
+
+/* Selection accent */
+::selection {
+  background: rgba(232, 158, 107, 0.25);
+  color: var(--color-foreground);
+}
+
+[data-theme="dark"] ::selection {
+  background: rgba(232, 158, 107, 0.3);
+  color: var(--color-foreground);
+}
+
+/* Managed sources table header */
+[data-theme="dark"] .managed-sources-header {
+  background: rgba(232,158,107,0.04);
 }
 
 .status-success { color: #34C759; }
@@ -267,7 +368,32 @@ input[type="checkbox"].toggle:checked::after {
   display: none;
 }
 .scrollbar-none {
-  -ms-overflow-style: none;  /* IE and Edge */
-  scrollbar-width: none;  /* Firefox */
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Navigation items */
+.nav-item-active {
+  background: rgba(232,158,107,0.12);
+  color: #E89E6B;
+}
+
+.nav-item-default {
+  color: var(--color-foreground-muted);
+}
+
+.nav-item-default:hover {
+  background: rgba(232,158,107,0.07);
+  color: var(--color-foreground);
+}
+
+[data-theme="light"] .nav-item-active {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
+}
+
+[data-theme="light"] .nav-item-default:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-foreground);
 }
 

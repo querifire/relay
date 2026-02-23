@@ -118,8 +118,8 @@ function NavGroup({ label, items, onItemClick }: { label: string; items: NavItem
             className={({ isActive }) =>
               `flex items-center gap-3 px-3 py-[0.625rem] rounded-button text-[0.875rem] font-medium transition-all duration-200 ${
                 isActive
-                  ? "bg-surface-hover text-foreground"
-                  : "text-foreground-muted hover:bg-surface-hover hover:text-foreground"
+                  ? "nav-item-active"
+                  : "nav-item-default"
               }`
             }
           >
@@ -164,63 +164,115 @@ export default function Layout() {
   };
 
   return (
-    <div className="flex flex-col h-screen overflow-hidden bg-background">
-      <TitleBar onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} />
-      
-      <div className="flex flex-1 overflow-hidden relative">
-        {/* Mobile Overlay */}
-        {isSidebarOpen && (
-          <div 
-            className="fixed inset-0 bg-black/50 z-40 md:hidden transition-opacity"
-            onClick={() => setIsSidebarOpen(false)}
-          />
-        )}
+    <div className="flex flex-col h-screen overflow-hidden relative" style={{ background: "var(--color-surface)" }}>
 
-        {/* ── Sidebar ─────────────────────────────────────────────── */}
-        <nav 
-          className={`
-            fixed inset-y-0 left-0 z-50 w-[15rem] bg-surface flex flex-col border-r border-border py-8 px-5 shrink-0
-            transition-transform duration-300 ease-in-out
-            md:relative md:translate-x-0
-            ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}
-          `}
-        >
-          {/* Mobile close button */}
-          <div className="flex items-center justify-end pl-3 mb-10 md:hidden">
-            <button 
+      {/* ── Background decorations ────────────────────────────────── */}
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: "radial-gradient(circle, var(--layout-dot-color) 1px, transparent 1px)",
+          backgroundSize: "28px 28px",
+          maskImage: "radial-gradient(ellipse 85% 85% at 50% 35%, black 15%, transparent 100%)",
+          WebkitMaskImage: "radial-gradient(ellipse 85% 85% at 50% 35%, black 15%, transparent 100%)",
+          zIndex: 0,
+        }}
+      />
+      <div
+        className="absolute inset-0 pointer-events-none"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+          backgroundSize: "180px 180px",
+          opacity: "var(--layout-noise-opacity)",
+          zIndex: 0,
+        }}
+      />
+      <div
+        className="absolute pointer-events-none rounded-full"
+        style={{
+          width: 600, height: 600,
+          background: "radial-gradient(circle, var(--layout-orb1) 0%, transparent 70%)",
+          filter: "blur(70px)",
+          top: "-150px", left: "-150px",
+          zIndex: 0,
+        }}
+      />
+      <div
+        className="absolute pointer-events-none rounded-full"
+        style={{
+          width: 500, height: 500,
+          background: "radial-gradient(circle, var(--layout-orb2) 0%, transparent 70%)",
+          filter: "blur(80px)",
+          bottom: "-100px", right: "-100px",
+          zIndex: 0,
+        }}
+      />
+
+      {/* ── App shell ──────────────────────────────────────────────── */}
+      <div className="relative flex flex-col h-full" style={{ zIndex: 1 }}>
+        <TitleBar onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} />
+
+        <div className="flex flex-1 overflow-hidden relative">
+          {/* Mobile Overlay */}
+          {isSidebarOpen && (
+            <div
+              className="fixed inset-0 bg-black/60 z-40 md:hidden"
               onClick={() => setIsSidebarOpen(false)}
-              className="p-1 -mr-2 rounded-md hover:bg-surface-hover text-foreground-muted hover:text-foreground transition-colors"
-            >
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M18 6L6 18M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+            />
+          )}
 
-          {/* Navigation */}
-          <div className="flex-1 overflow-y-auto overflow-x-hidden -mx-2 px-2 scrollbar-none">
-            <NavGroup label="Platform" items={platformItems} onItemClick={() => setIsSidebarOpen(false)} />
-            <NavGroup label="Security" items={securityItems} onItemClick={() => setIsSidebarOpen(false)} />
-            <NavGroup label="Configuration" items={configItems} onItemClick={() => setIsSidebarOpen(false)} />
-          </div>
-
-          {/* Theme toggle (bottom) */}
-          <div className="pt-4 border-t border-border mt-auto">
-            <ThemeToggle />
-          </div>
-        </nav>
-
-        {/* ── Main content ────────────────────────────────────────── */}
-        <main className="flex-1 overflow-y-auto py-6 px-4 sm:py-8 sm:px-8 md:py-10 md:px-12">
-          <motion.div
-            key={location.pathname}
-            initial={isFirstRender.current ? false : { opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.18, ease: "easeOut" }}
+          {/* ── Sidebar ───────────────────────────────────────────── */}
+          <nav
+            className={`
+              fixed inset-y-0 left-0 z-50 w-[15rem] flex flex-col py-8 px-5 shrink-0
+              transition-transform duration-300 ease-in-out
+              md:relative md:translate-x-0
+              ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}
+            `}
+            style={{
+              background: "var(--sidebar-bg)",
+              backdropFilter: "blur(20px)",
+              WebkitBackdropFilter: "blur(20px)",
+              borderRight: "1px solid var(--sidebar-border)",
+            }}
           >
-            <Outlet context={{ pageName: getPageName() }} />
-          </motion.div>
-        </main>
+            {/* Mobile close button */}
+            <div className="flex items-center justify-end pl-3 mb-10 md:hidden">
+              <button
+                onClick={() => setIsSidebarOpen(false)}
+                className="p-1 -mr-2 rounded-md text-foreground-muted hover:text-foreground transition-colors"
+                style={{ background: "rgba(232,158,107,0.06)" }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6L6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Navigation */}
+            <div className="flex-1 overflow-y-auto overflow-x-hidden -mx-2 px-2 scrollbar-none">
+              <NavGroup label="Platform" items={platformItems} onItemClick={() => setIsSidebarOpen(false)} />
+              <NavGroup label="Security" items={securityItems} onItemClick={() => setIsSidebarOpen(false)} />
+              <NavGroup label="Configuration" items={configItems} onItemClick={() => setIsSidebarOpen(false)} />
+            </div>
+
+            {/* Theme toggle (bottom) */}
+            <div className="pt-4 mt-auto" style={{ borderTop: "1px solid var(--sidebar-border)" }}>
+              <ThemeToggle />
+            </div>
+          </nav>
+
+          {/* ── Main content ──────────────────────────────────────── */}
+          <main className="flex-1 overflow-y-auto py-6 px-4 sm:py-8 sm:px-8 md:py-10 md:px-12">
+            <motion.div
+              key={location.pathname}
+              initial={isFirstRender.current ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              <Outlet context={{ pageName: getPageName() }} />
+            </motion.div>
+          </main>
+        </div>
       </div>
     </div>
   );

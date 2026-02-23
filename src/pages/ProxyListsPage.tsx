@@ -468,7 +468,7 @@ export default function ProxyListsPage() {
 
           {/* ── Managed Sources table ───────────────────────────── */}
           <div className="bg-surface-card border border-border rounded-card overflow-hidden">
-            <div className="py-4 px-6 border-b border-border flex justify-between items-center bg-[#FAFAFA] dark:bg-surface-hover">
+            <div className="py-4 px-6 border-b border-border flex justify-between items-center bg-surface-hover">
               <span className="text-[0.875rem] font-semibold">Managed Sources</span>
               <div className="text-[0.75rem] text-foreground-muted">
                 {1 + lists.length} source{lists.length > 0 ? "s" : ""}

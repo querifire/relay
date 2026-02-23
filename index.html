@@ -9,7 +9,7 @@
     <script>
       (function () {
         try {
-          var theme = localStorage.getItem('autoproxy-theme') || 'Light';
+          var theme = localStorage.getItem('autoproxy-theme') || 'Dark';
           document.documentElement.setAttribute('data-theme', theme.toLowerCase());
           if (!localStorage.getItem('relay_welcomed')) {
             document.documentElement.setAttribute('data-splash', '1');
@@ -19,8 +19,8 @@
     </script>
     <style>
       html, body { margin: 0; padding: 0; height: 100%; }
-      body { background: #ffffff; }
-      [data-theme="dark"] body { background: #0d0d0d; }
+      body { background: #0d0a08; }
+      [data-theme="light"] body { background: #faf8f5; }
       [data-splash] body { background: linear-gradient(135deg, #E89E6B 0%, #D95B5B 50%, #1a1a2e 100%); }
     </style>
   </head>

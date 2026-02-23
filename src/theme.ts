@@ -4,7 +4,7 @@ import type { Theme } from "./types";
 export function getStoredTheme(): Theme {
   const stored = localStorage.getItem("autoproxy-theme");
   if (stored === "Light" || stored === "Dark") return stored;
-  return "Light";
+  return "Dark";
 }
 
 /** Apply theme to `<html>` and persist in localStorage. */
