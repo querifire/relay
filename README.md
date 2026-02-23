@@ -23,13 +23,13 @@
 ## Screenshots
 
 ### Dashboard
-![Dashboard](public/main_page.png)
+![Dashboard](public/main_page.png?v=2)
 
 ### Proxy Lists
-![Proxy Lists](public/proxy_lists.png)
+![Proxy Lists](public/proxy_lists.png?v=2)
 
 ### Settings
-![Settings](public/settings.png)
+![Settings](public/settings.png?v=2)
 
 ---
 
