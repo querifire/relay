@@ -1,0 +1,19 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="shieldGrad" x1="0" y1="0" x2="512" y2="512" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#E89E6B" />
+      <stop offset="100%" stop-color="#D95B5B" />
+    </linearGradient>
+  </defs>
+
+  <!-- Minimalist Shield representing Security and Anonymity -->
+  <path d="M 256 64 L 416 128 L 416 256 C 416 368 352 448 256 480 C 160 448 96 368 96 256 L 96 128 Z" fill="url(#shieldGrad)" stroke="#FAFAFA" stroke-width="32" stroke-linejoin="round" />
+  
+  <!-- Routing Path representing Proxy/Relay connections -->
+  <path d="M 160 304 L 256 176 L 352 304" fill="none" stroke="#FAFAFA" stroke-width="32" stroke-linejoin="round" stroke-linecap="round" />
+  
+  <!-- Nodes representing servers in the proxy chain -->
+  <circle cx="160" cy="304" r="20" fill="url(#shieldGrad)" stroke="#FAFAFA" stroke-width="16" />
+  <circle cx="256" cy="176" r="20" fill="url(#shieldGrad)" stroke="#FAFAFA" stroke-width="16" />
+  <circle cx="352" cy="304" r="20" fill="url(#shieldGrad)" stroke="#FAFAFA" stroke-width="16" />
+</svg>

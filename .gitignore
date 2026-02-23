@@ -1,0 +1,18 @@
+# Rust
+/target
+/src-tauri/target
+
+# Node
+node_modules
+dist
+*.log
+.env
+
+# Legacy scripts (old AutoProxy CLI)
+install_taskscheduler.ps1
+install_service.ps1
+README.md
+
+# App data
+autoproxy_cache.json
+nssm.exe

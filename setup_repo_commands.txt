@@ -1,0 +1,27 @@
+============================================
+Выполнять в CMD или PowerShell ВНЕ Cursor
+(Пуск → cmd или PowerShell → cd A:\Projects\Main\relay)
+============================================
+
+1) На GitHub: удали репо querifire/relay, создай новый пустой "relay" (без README).
+
+2) В папке проекта выполни по порядку:
+
+cd /d A:\Projects\Main\relay
+
+git init
+
+git config user.name "querifire"
+git config user.email "shadowqueri@gmail.com"
+
+git add .
+git commit -m "Initial commit"
+
+git branch -M main
+git remote add origin https://github.com/querifire/relay.git
+
+git push -u origin main
+
+============================================
+После этого в Contributors должен быть только querifire.
+============================================
