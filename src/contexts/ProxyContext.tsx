@@ -4,6 +4,7 @@ import {
   useState,
   useEffect,
   useCallback,
+  useMemo,
   useRef,
 } from "react";
 import type { ReactNode } from "react";
@@ -72,11 +73,33 @@ export function ProxyProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+  // Initial fetch
   useEffect(() => {
     refresh();
-    const id = setInterval(refresh, 3000);
-    return () => clearInterval(id);
   }, [refresh]);
+
+  // Adaptive polling: 3s when any instance is Running/Starting, 10s otherwise; pause when tab hidden
+  useEffect(() => {
+    const hasActive = instances.some(
+      (i) => i.status === "Running" || i.status === "Starting"
+    );
+    const intervalMs = hasActive ? 3000 : 10000;
+
+    const tick = () => {
+      if (document.visibilityState === "hidden") return;
+      refresh();
+    };
+
+    const id = setInterval(tick, intervalMs);
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
+  }, [instances, refresh]);
 
   const createInstance = useCallback(
     async (
@@ -179,21 +202,35 @@ export function ProxyProvider({ children }: { children: ReactNode }) {
     [refresh],
   );
 
+  const value = useMemo(
+    () => ({
+      instances,
+      loading,
+      busyIds,
+      refresh,
+      createInstance,
+      startInstance,
+      stopInstance,
+      deleteInstance,
+      toggleAutoRotate,
+      updateAutoRotateMinutes,
+    }),
+    [
+      instances,
+      loading,
+      busyIds,
+      refresh,
+      createInstance,
+      startInstance,
+      stopInstance,
+      deleteInstance,
+      toggleAutoRotate,
+      updateAutoRotateMinutes,
+    ]
+  );
+
   return (
-    <ProxyContext.Provider
-      value={{
-        instances,
-        loading,
-        busyIds,
-        refresh,
-        createInstance,
-        startInstance,
-        stopInstance,
-        deleteInstance,
-        toggleAutoRotate,
-        updateAutoRotateMinutes,
-      }}
-    >
+    <ProxyContext.Provider value={value}>
       {children}
     </ProxyContext.Provider>
   );

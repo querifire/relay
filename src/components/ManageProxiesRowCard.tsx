@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 
-export type PlaceholderStatus = "active" | "idle" | "offline";
+export type PlaceholderStatus = "active" | "starting" | "connecting" | "idle" | "offline";
 export type LatencyVariant = "ok" | "slow" | "offline" | "last";
 
 export interface ManageProxiesRowPlaceholder {
@@ -21,20 +22,57 @@ export interface ManageProxiesRowPlaceholder {
 
 interface Props {
   item: ManageProxiesRowPlaceholder;
+  /** Index for staggered fade-in animation (optional). */
+  index?: number;
 }
 
 function StatusBadgePlaceholder({ status }: { status: PlaceholderStatus }) {
-  const classes =
-    status === "active"
-      ? "bg-[rgba(52,199,89,0.1)] text-[#34C759]"
-      : status === "idle"
-        ? "bg-[rgba(142,142,147,0.1)] text-foreground-muted"
-        : "bg-[rgba(255,59,48,0.1)] text-[#FF3B30]";
-  const label = status === "active" ? "Active" : status === "idle" ? "Idle" : "Offline";
+  const configs: Record<
+    PlaceholderStatus,
+    { classes: string; label: string; pulse?: boolean; spinner?: boolean }
+  > = {
+    active: { classes: "bg-[rgba(52,199,89,0.1)] text-[#34C759]", label: "Active" },
+    starting: {
+      classes: "bg-[rgba(255,159,10,0.1)] text-[#FF9F0A]",
+      label: "Starting",
+      pulse: true,
+    },
+    connecting: {
+      classes: "bg-[rgba(10,132,255,0.1)] text-[#0A84FF]",
+      label: "Connecting",
+      spinner: true,
+    },
+    idle: { classes: "bg-[rgba(142,142,147,0.1)] text-foreground-muted", label: "Idle" },
+    offline: { classes: "bg-[rgba(255,59,48,0.1)] text-[#FF3B30]", label: "Error" },
+  };
+  const { classes, label, pulse, spinner } = configs[status];
   return (
     <span
-      className={`inline-flex w-fit px-2.5 py-1 rounded-badge text-[0.6875rem] font-semibold ${classes}`}
+      className={`inline-flex items-center gap-1.5 w-fit px-2.5 py-1 rounded-badge text-[0.6875rem] font-semibold ${classes} ${pulse ? "animate-pulse" : ""}`}
     >
+      {spinner && (
+        <svg
+          className="w-3 h-3 animate-spin"
+          viewBox="0 0 24 24"
+          fill="none"
+          aria-hidden
+        >
+          <circle
+            cx="12"
+            cy="12"
+            r="10"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeOpacity="0.25"
+          />
+          <path
+            d="M12 2a10 10 0 0 1 10 10"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+          />
+        </svg>
+      )}
       {label}
     </span>
   );
@@ -50,7 +88,7 @@ function LatencyDot({ variant }: { variant: LatencyVariant }) {
   return <span className={`w-1.5 h-1.5 rounded-full ${bg}`} />;
 }
 
-export default function ManageProxiesRowCard({ item }: Props) {
+function ManageProxiesRowCard({ item, index = 0 }: Props) {
   const navigate = useNavigate();
   const [autoStart, setAutoStart] = useState(item.autoStartOnBoot);
   const variant: LatencyVariant =
@@ -78,7 +116,10 @@ export default function ManageProxiesRowCard({ item }: Props) {
   };
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut", delay: index * 0.04 }}
       role={item.id ? "button" : undefined}
       tabIndex={item.id ? 0 : undefined}
       onClick={item.id ? handleCardClick : undefined}
@@ -146,6 +187,8 @@ export default function ManageProxiesRowCard({ item }: Props) {
           on boot
         </span>
       </div>
-    </div>
+    </motion.div>
   );
 }
+
+export default memo(ManageProxiesRowCard);

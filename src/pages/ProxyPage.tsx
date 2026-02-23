@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useProxies } from "../contexts/ProxyContext";
 import ManageProxiesRowCard, {
@@ -7,84 +7,47 @@ import ManageProxiesRowCard, {
 import { extractCountryCode, getInitials } from "../utils/countryFlags";
 import type { ProxyInstanceInfo } from "../types";
 
-const MOCK_PROXIES: ManageProxiesRowPlaceholder[] = [
-  {
-    locationCode: "US",
-    locationName: "United States (NY)",
-    endpoint: "192.168.1.42:8080",
-    typeProtocol: "Residential • HTTP/S",
-    status: "active",
-    latency: "42ms",
-    latencyVariant: "ok",
-    autoStartOnBoot: true,
-  },
-  {
-    locationCode: "DE",
-    locationName: "Germany (Frankfurt)",
-    endpoint: "178.24.11.09:3128",
-    typeProtocol: "Datacenter • SOCKS5",
-    status: "active",
-    latency: "124ms",
-    latencyVariant: "slow",
-    autoStartOnBoot: false,
-  },
-  {
-    locationCode: "GB",
-    locationName: "United Kingdom (London)",
-    endpoint: "185.11.23.41:9050",
-    typeProtocol: "Residential • SOCKS5",
-    status: "active",
-    latency: "38ms",
-    latencyVariant: "ok",
-    autoStartOnBoot: true,
-  },
-  {
-    locationCode: "JP",
-    locationName: "Japan (Tokyo)",
-    endpoint: "104.22.14.99:8888",
-    typeProtocol: "Mobile 4G • HTTP",
-    status: "idle",
-    latency: "Last: 82ms",
-    latencyVariant: "last",
-    autoStartOnBoot: false,
-    opacity: 0.8,
-  },
-  {
-    locationCode: "BR",
-    locationName: "Brazil (São Paulo)",
-    endpoint: "177.12.33.01:1080",
-    typeProtocol: "Mobile 4G • SOCKS4",
-    status: "offline",
-    latency: "Timeout",
-    latencyVariant: "offline",
-    autoStartOnBoot: false,
-    opacity: 0.6,
-  },
-];
+const STARTING_TO_CONNECTING_MS = 2000;
 
-function instanceToRow(inst: ProxyInstanceInfo): ManageProxiesRowPlaceholder {
+function isErrorStatus(s: ProxyInstanceInfo["status"]): s is { Error: string } {
+  return typeof s === "object" && s !== null && "Error" in s;
+}
+
+function instanceToRow(
+  inst: ProxyInstanceInfo,
+  startingSince?: number
+): ManageProxiesRowPlaceholder {
   const code = extractCountryCode(inst.name) ?? getInitials(inst.name);
-  const status: ManageProxiesRowPlaceholder["status"] =
-    inst.status === "Running" || inst.status === "Starting"
-      ? "active"
-      : inst.status === "Stopped"
-        ? "idle"
-        : "offline";
+
+  let status: ManageProxiesRowPlaceholder["status"];
+  if (inst.status === "Running") {
+    status = "active";
+  } else if (inst.status === "Starting") {
+    const elapsed = startingSince ? Date.now() - startingSince : 0;
+    status = elapsed >= STARTING_TO_CONNECTING_MS ? "connecting" : "starting";
+  } else if (inst.status === "Stopped") {
+    status = "idle";
+  } else {
+    status = "offline";
+  }
 
   // Use upstream_latency_ms (from speed test) for displaying ms in the list.
-  // Fall back to avg_latency_ms from proxied requests if upstream latency isn't set.
   const upstreamMs = inst.upstream_latency_ms ?? 0;
   const avgMs = inst.stats?.avg_latency_ms ?? 0;
   const displayMs = upstreamMs > 0 ? upstreamMs : avgMs;
 
-  const latency =
-    inst.status === "Running" && displayMs > 0
-      ? `${Math.round(displayMs)}ms`
-      : inst.status === "Running"
-        ? "—"
-        : inst.status === "Stopped"
-          ? "—"
-          : "Timeout";
+  let latency: string;
+  if (inst.status === "Running") {
+    latency = displayMs > 0 ? `${Math.round(displayMs)}ms` : "—";
+  } else if (inst.status === "Starting") {
+    latency = "Connecting...";
+  } else if (inst.status === "Stopped") {
+    latency = "—";
+  } else if (isErrorStatus(inst.status)) {
+    latency = inst.status.Error;
+  } else {
+    latency = "Error";
+  }
 
   const latencyVariant: ManageProxiesRowPlaceholder["latencyVariant"] =
     inst.status === "Running" && displayMs > 0
@@ -121,38 +84,33 @@ function instanceToRow(inst: ProxyInstanceInfo): ManageProxiesRowPlaceholder {
   };
 }
 
-function exportInstances(instances: ProxyInstanceInfo[]) {
-  const lines = [
-    "Name,Endpoint,Mode,Protocol,Status,Latency(ms)",
-    ...instances.map((inst) => {
-      const endpoint = `${inst.bind_addr}:${inst.port}`;
-      const status = typeof inst.status === "string" ? inst.status : "Error";
-      const latencyMs = inst.upstream_latency_ms > 0 ? inst.upstream_latency_ms : inst.stats?.avg_latency_ms ?? 0;
-      return `"${inst.name}","${endpoint}","${inst.mode}","${inst.local_protocol}","${status}","${latencyMs}"`;
-    }),
-  ];
-  const csv = lines.join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.style.display = "none";
-  a.href = url;
-  a.download = "relay-proxies.csv";
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
-  URL.revokeObjectURL(url);
-}
-
 export default function ProxyPage() {
   const navigate = useNavigate();
   const { instances } = useProxies();
   const [search, setSearch] = useState("");
+  const [startingSince, setStartingSince] = useState<Record<string, number>>({});
+  const prevInstancesRef = useRef<ProxyInstanceInfo[]>([]);
 
-  const allRows: ManageProxiesRowPlaceholder[] =
-    instances.length > 0
-      ? instances.map(instanceToRow)
-      : MOCK_PROXIES;
+  // Track when each instance entered Starting so we can show "Connecting" after 2s
+  useEffect(() => {
+    const now = Date.now();
+    setStartingSince((prev) => {
+      const next: Record<string, number> = {};
+      for (const inst of instances) {
+        if (inst.status === "Starting") {
+          const wasStarting =
+            prevInstancesRef.current.find((p) => p.id === inst.id)?.status === "Starting";
+          next[inst.id] = wasStarting && prev[inst.id] != null ? prev[inst.id] : now;
+        }
+      }
+      return Object.keys(next).length ? { ...prev, ...next } : {};
+    });
+    prevInstancesRef.current = instances;
+  }, [instances]);
+
+  const allRows: ManageProxiesRowPlaceholder[] = instances.map((inst) =>
+    instanceToRow(inst, startingSince[inst.id])
+  );
 
   const rows =
     search.trim() === ""
@@ -165,6 +123,9 @@ export default function ProxyPage() {
             item.typeProtocol.toLowerCase().includes(q)
           );
         });
+
+  const showEmptyState = instances.length === 0;
+  const showNoSearchResults = rows.length === 0 && search.trim() !== "";
 
   return (
     <div>
@@ -190,23 +151,6 @@ export default function ProxyPage() {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={() => exportInstances(instances)}
-            className="h-9 px-4 rounded-button text-[0.8125rem] font-medium flex items-center gap-2 bg-surface-hover text-foreground border-0 cursor-pointer transition-all duration-200 hover:bg-border"
-          >
-            <svg
-              width="13"
-              height="13"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-            >
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3" />
-            </svg>
-            Export List
-          </button>
-          <button
-            type="button"
             className="h-9 px-4 rounded-button text-[0.8125rem] font-medium flex items-center gap-2 bg-foreground text-white dark:bg-white dark:text-[#1C1C1E] border-0 cursor-pointer transition-all duration-200"
             onClick={() => navigate("/proxy/new")}
           >
@@ -225,22 +169,64 @@ export default function ProxyPage() {
         </div>
       </div>
 
-      {rows.length === 0 && search.trim() !== "" && (
+      {showNoSearchResults && (
         <div className="text-center py-12 text-foreground-muted text-[0.875rem]">
           No proxies match "{search}"
         </div>
       )}
 
-      <div className="overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
-        <div className="flex flex-col gap-3 min-w-[900px]">
-          {rows.map((item, index) => (
-            <ManageProxiesRowCard
-              key={item.id ?? `${item.endpoint}-${index}`}
-              item={item}
-            />
-          ))}
+      {showEmptyState ? (
+        <div className="flex flex-col items-center justify-center py-20 text-center">
+          <div className="w-14 h-14 mb-5 rounded-card bg-surface-hover border border-border flex items-center justify-center">
+            <svg
+              width="28"
+              height="28"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-foreground-muted"
+            >
+              <path d="M20 7h-9" />
+              <path d="M14 17H5" />
+              <circle cx="17" cy="17" r="3" />
+              <circle cx="7" cy="7" r="3" />
+            </svg>
+          </div>
+          <h3 className="text-[1rem] font-medium text-foreground mb-1">
+            No proxy instances
+          </h3>
+          <p className="text-[0.8125rem] text-foreground-muted mb-6 max-w-sm">
+            Create your first proxy to get started. You can add residential, datacenter, or Tor proxies.
+          </p>
+          <button
+            type="button"
+            onClick={() => navigate("/proxy/new")}
+            className="h-9 px-4 rounded-button text-[0.8125rem] font-medium bg-foreground text-white dark:bg-white dark:text-[#1C1C1E] border-0 cursor-pointer transition-all duration-200 hover:opacity-90"
+          >
+            <span className="flex items-center gap-2">
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M6 1V11M1 6H11" />
+              </svg>
+              New Proxy
+            </span>
+          </button>
         </div>
-      </div>
+      ) : (
+        <div className="overflow-x-auto pb-4 -mx-4 px-4 sm:mx-0 sm:px-0">
+          <div className="flex flex-col gap-3 min-w-[900px]">
+            {rows.map((item, index) => (
+              <ManageProxiesRowCard
+                key={item.id ?? `${item.endpoint}-${index}`}
+                item={item}
+                index={index}
+              />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

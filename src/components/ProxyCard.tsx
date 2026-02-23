@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useState, memo } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import { invoke } from "@tauri-apps/api/core";
 import type { ProxyInstanceInfo } from "../types";
 import StatusBadge from "./StatusBadge";
@@ -12,6 +13,8 @@ interface Props {
   onStart: (id: string) => void;
   onStop: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Index for staggered fade-in animation (optional). */
+  index?: number;
 }
 
 const protocolDisplayMap: Record<string, string> = {
@@ -62,12 +65,13 @@ function getCardOpacity(inst: ProxyInstanceInfo): string {
   return "";
 }
 
-export default function ProxyCard({
+function ProxyCard({
   instance,
   busy: _busy,
   onStart: _onStart,
   onStop: _onStop,
   onDelete: _onDelete,
+  index = 0,
 }: Props) {
   const navigate = useNavigate();
 
@@ -128,7 +132,10 @@ export default function ProxyCard({
   };
 
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.25, ease: "easeOut", delay: index * 0.05 }}
       onClick={() => navigate(`/proxy/${instance.id}`)}
       className={`col-span-12 md:col-span-6 xl:col-span-4 bg-surface-card border border-border rounded-card p-5 transition-all duration-200 cursor-pointer relative hover:border-border-focus hover:-translate-y-0.5 hover:shadow-float ${opacityClass}`}
     >
@@ -209,6 +216,8 @@ export default function ProxyCard({
           {latencyText}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
+
+export default memo(ProxyCard);

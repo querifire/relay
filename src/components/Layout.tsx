@@ -1,5 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
+import { motion } from "framer-motion";
 import ThemeToggle from "./ThemeToggle";
 import TitleBar from "./TitleBar";
 
@@ -134,11 +135,20 @@ function NavGroup({ label, items, onItemClick }: { label: string; items: NavItem
 export default function Layout() {
   const location = useLocation();
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const isFirstRender = useRef(true);
 
   // Close sidebar when route changes on mobile
   useEffect(() => {
     setIsSidebarOpen(false);
   }, [location.pathname]);
+
+  // Skip initial animation to avoid flash on load
+  useEffect(() => {
+    const t = setTimeout(() => {
+      isFirstRender.current = false;
+    }, 0);
+    return () => clearTimeout(t);
+  }, []);
 
   // Determine current page title for breadcrumbs
   const getPageName = () => {
@@ -175,22 +185,11 @@ export default function Layout() {
             ${isSidebarOpen ? "translate-x-0" : "-translate-x-full"}
           `}
         >
-          {/* Logo and Mobile close button */}
-          <div className="flex items-center justify-between pl-3 mb-10">
-            <div className="flex items-center gap-[0.625rem]">
-              <div
-                className="w-5 h-5 rounded-[0.375rem]"
-                style={{
-                  background: "linear-gradient(135deg, var(--accent-mid), var(--accent-end))",
-                }}
-              />
-              <span className="font-semibold text-[0.9375rem] tracking-[-0.01em]">
-                Relay
-              </span>
-            </div>
+          {/* Mobile close button */}
+          <div className="flex items-center justify-end pl-3 mb-10 md:hidden">
             <button 
               onClick={() => setIsSidebarOpen(false)}
-              className="md:hidden p-1 -mr-2 rounded-md hover:bg-surface-hover text-foreground-muted hover:text-foreground transition-colors"
+              className="p-1 -mr-2 rounded-md hover:bg-surface-hover text-foreground-muted hover:text-foreground transition-colors"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                 <path d="M18 6L6 18M6 6l12 12" />
@@ -213,7 +212,14 @@ export default function Layout() {
 
         {/* ── Main content ────────────────────────────────────────── */}
         <main className="flex-1 overflow-y-auto py-6 px-4 sm:py-8 sm:px-8 md:py-10 md:px-12">
-          <Outlet context={{ pageName: getPageName() }} />
+          <motion.div
+            key={location.pathname}
+            initial={isFirstRender.current ? false : { opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.18, ease: "easeOut" }}
+          >
+            <Outlet context={{ pageName: getPageName() }} />
+          </motion.div>
         </main>
       </div>
     </div>

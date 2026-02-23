@@ -5,6 +5,24 @@
     <link rel="icon" type="image/svg+xml" href="/icon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Relay</title>
+    <!-- Runs synchronously before first paint to prevent flash of wrong background -->
+    <script>
+      (function () {
+        try {
+          var theme = localStorage.getItem('autoproxy-theme') || 'Light';
+          document.documentElement.setAttribute('data-theme', theme.toLowerCase());
+          if (!localStorage.getItem('relay_welcomed')) {
+            document.documentElement.setAttribute('data-splash', '1');
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <style>
+      html, body { margin: 0; padding: 0; height: 100%; }
+      body { background: #ffffff; }
+      [data-theme="dark"] body { background: #0d0d0d; }
+      [data-splash] body { background: linear-gradient(135deg, #E89E6B 0%, #D95B5B 50%, #1a1a2e 100%); }
+    </style>
   </head>
   <body>
     <div id="root"></div>

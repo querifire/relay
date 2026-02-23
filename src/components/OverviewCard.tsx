@@ -1,3 +1,5 @@
+import { memo } from "react";
+import { motion } from "framer-motion";
 import type { ProxyInstanceInfo } from "../types";
 
 interface Props {
@@ -6,7 +8,7 @@ interface Props {
   trafficData: number[];
 }
 
-export default function OverviewCard({ instances, trafficData }: Props) {
+function OverviewCard({ instances, trafficData }: Props) {
   const runningCount = instances.filter((i) => i.status === "Running").length;
   const totalCount = instances.length;
 
@@ -20,7 +22,12 @@ export default function OverviewCard({ instances, trafficData }: Props) {
   const peakIndex = trafficData.indexOf(Math.max(...trafficData));
 
   return (
-    <div className="col-span-12 relative overflow-hidden rounded-card border border-border bg-surface-card p-6 flex flex-col justify-between min-h-[12.5rem] shadow-card overview-glow">
+    <motion.div
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      transition={{ duration: 0.3, ease: "easeOut" }}
+      className="col-span-12 relative overflow-hidden rounded-card border border-border bg-surface-card p-6 flex flex-col justify-between min-h-[12.5rem] shadow-card overview-glow"
+    >
       {/* Header */}
       <div className="relative z-10 flex justify-between items-start">
         <div>
@@ -49,6 +56,8 @@ export default function OverviewCard({ instances, trafficData }: Props) {
           />
         ))}
       </div>
-    </div>
+    </motion.div>
   );
 }
+
+export default memo(OverviewCard);

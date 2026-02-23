@@ -170,7 +170,7 @@ export default function DashboardPage() {
               )}
             </div>
           ) : (
-            filteredInstances.map((inst) => (
+            filteredInstances.map((inst, index) => (
               <ProxyCard
                 key={inst.id}
                 instance={inst}
@@ -178,6 +178,7 @@ export default function DashboardPage() {
                 onStart={startInstance}
                 onStop={stopInstance}
                 onDelete={deleteInstance}
+                index={index}
               />
             ))
           )}

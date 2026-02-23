@@ -1,10 +1,11 @@
+import { memo } from "react";
 import type { ProxyStatusInfo } from "../types";
 
 interface Props {
   status: ProxyStatusInfo;
 }
 
-export default function StatusBadge({ status }: Props) {
+function StatusBadge({ status }: Props) {
   let label: string;
   let className: string;
 
@@ -13,7 +14,7 @@ export default function StatusBadge({ status }: Props) {
     className = "bg-[rgba(52,199,89,0.1)] text-[#34C759]";
   } else if (status === "Starting") {
     label = "Starting";
-    className = "bg-[rgba(255,159,10,0.1)] text-[#FF9F0A]";
+    className = "bg-[rgba(255,159,10,0.1)] text-[#FF9F0A] animate-pulse";
   } else if (status === "Stopped") {
     label = "Idle";
     className = "bg-[rgba(142,142,147,0.1)] text-foreground-muted";
@@ -30,3 +31,5 @@ export default function StatusBadge({ status }: Props) {
     </span>
   );
 }
+
+export default memo(StatusBadge);

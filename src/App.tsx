@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { HashRouter, Routes, Route } from "react-router-dom";
 import { ProxyProvider } from "./contexts/ProxyContext";
 import Layout from "./components/Layout";
+import WelcomeScreen, { hasBeenWelcomed } from "./components/WelcomeScreen";
 import DashboardPage from "./pages/DashboardPage";
 import SettingsPage from "./pages/SettingsPage";
 import TorPage from "./pages/TorPage";
@@ -12,8 +14,13 @@ import LeakTestPage from "./pages/LeakTestPage";
 import ProxyCheckerPage from "./pages/ProxyCheckerPage";
 
 function App() {
+  const [showWelcome, setShowWelcome] = useState(() => !hasBeenWelcomed());
+
   return (
     <ProxyProvider>
+      {showWelcome && (
+        <WelcomeScreen onContinue={() => setShowWelcome(false)} />
+      )}
       <HashRouter>
         <Routes>
           <Route path="/" element={<Layout />}>
