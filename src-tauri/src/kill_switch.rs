@@ -1,3 +1,5 @@
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -177,6 +179,7 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
             "action=block",
             "enable=yes",
         ])
+        .creation_flags(0x08000000)
         .output()?;
 
     if block_output.status.success() {
@@ -197,6 +200,7 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
             "remoteip=127.0.0.1,::1",
             "enable=yes",
         ])
+        .creation_flags(0x08000000)
         .output()?;
     rule_names.push(loopback_rule);
 
@@ -214,6 +218,7 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
                 &format!("remoteip={}", remoteip),
                 "enable=yes",
             ])
+            .creation_flags(0x08000000)
             .output()?;
         rule_names.push(upstream_rule);
     }
@@ -230,6 +235,7 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
                 &format!("localport={}", port),
                 "enable=yes",
             ])
+            .creation_flags(0x08000000)
             .output()?;
         rule_names.push(rule_name);
     }
@@ -266,6 +272,7 @@ fn remove_firewall_rules() -> Result<()> {
                     "advfirewall", "firewall", "delete", "rule",
                     &format!("name={}_{}", RULE_NAME_PREFIX, suffix),
                 ])
+                .creation_flags(0x08000000)
                 .output();
         }
         let _ = std::process::Command::new("netsh")
@@ -273,11 +280,13 @@ fn remove_firewall_rules() -> Result<()> {
                 "advfirewall", "firewall", "delete", "rule",
                 &format!("name={}_AllowProxy_*", RULE_NAME_PREFIX),
             ])
+            .creation_flags(0x08000000)
             .output();
     } else {
         for rule_name in &rule_names {
             let _ = std::process::Command::new("netsh")
                 .args(["advfirewall", "firewall", "delete", "rule", &format!("name={}", rule_name)])
+                .creation_flags(0x08000000)
                 .output();
         }
     }

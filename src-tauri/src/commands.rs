@@ -1,3 +1,5 @@
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use crate::anonymity_check::{self, AnonymityLevel};
 use crate::kill_switch::KillSwitchState;
 use crate::leak_test::{self, LeakTestResult};
@@ -201,14 +203,18 @@ pub async fn start_instance(
                 tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             }
 
-            let child_result = std::process::Command::new(&tor_path)
-                .arg("--SocksPort")
+            let mut cmd = std::process::Command::new(&tor_path);
+            cmd.arg("--SocksPort")
                 .arg(format!("{}:{}", bind_addr, port))
                 .arg("--DataDirectory")
                 .arg(data_dir.to_string_lossy().to_string())
                 .stdout(std::process::Stdio::piped())
-                .stderr(std::process::Stdio::piped())
-                .spawn();
+                .stderr(std::process::Stdio::piped());
+            #[cfg(windows)]
+            {
+                cmd.creation_flags(0x08000000);
+            }
+            let child_result = cmd.spawn();
 
             match child_result {
                 Ok(mut child) => {

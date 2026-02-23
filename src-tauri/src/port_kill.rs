@@ -42,10 +42,12 @@ pub fn kill_process_on_port(port: u16) -> Result<bool, String> {
 
 #[cfg(windows)]
 fn pids_listening_on_port(port: u16) -> Result<Vec<u32>, String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
     let port_str = format!(":{}", port);
     let output = Command::new("netstat")
         .args(["-ano"])
+        .creation_flags(0x08000000)
         .output()
         .map_err(|e| format!("netstat failed: {}", e))?;
     let stdout = String::from_utf8_lossy(&output.stdout);
@@ -89,9 +91,11 @@ fn port_match_in_line(line: &str, port_str: &str) -> bool {
 
 #[cfg(windows)]
 fn kill_pid(pid: u32) -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
     use std::process::Command;
     let status = Command::new("taskkill")
         .args(["/PID", &pid.to_string(), "/F"])
+        .creation_flags(0x08000000)
         .status()
         .map_err(|e| format!("taskkill failed: {}", e))?;
     if status.success() {
