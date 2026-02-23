@@ -56,7 +56,9 @@ export default function ProxyCheckerPage() {
   }
 
   useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (logs.length > 0) {
+      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    }
   }, [logs]);
 
   // Clean up event listeners on unmount

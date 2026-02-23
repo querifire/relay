@@ -265,6 +265,7 @@ export default function Layout() {
           <main className="flex-1 overflow-y-auto py-6 px-4 sm:py-8 sm:px-8 md:py-10 md:px-12">
             <motion.div
               key={location.pathname}
+              className="h-full"
               initial={isFirstRender.current ? false : { opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 0.18, ease: "easeOut" }}
