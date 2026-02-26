@@ -41,7 +41,7 @@ pub async fn test_proxy(proxy: &Proxy) -> Option<Duration> {
     let result = match proxy.protocol {
         ProxyProtocol::Http | ProxyProtocol::Https => test_http_proxy(proxy).await,
         ProxyProtocol::Socks4 | ProxyProtocol::Socks5 => test_socks_proxy(proxy).await,
-        ProxyProtocol::Tor => return None, // Tor testing not yet implemented
+        ProxyProtocol::Tor => return None, 
     };
 
     match result {

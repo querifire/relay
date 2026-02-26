@@ -1,16 +1,14 @@
 
-/** Convert a 2-letter ISO country code to its emoji flag. */
 export function codeToFlag(code: string): string {
   const upper = code.toUpperCase();
   if (upper.length !== 2) return "";
-  const offset = 0x1f1e6 - 65; // 'A' = 65
+  const offset = 0x1f1e6 - 65; 
   return String.fromCodePoint(
     upper.charCodeAt(0) + offset,
     upper.charCodeAt(1) + offset,
   );
 }
 
-/** Well-known 2-letter country codes we recognise in proxy names. */
 const KNOWN_CODES = new Set([
   "US", "GB", "UK", "DE", "FR", "RU", "NL", "CA", "AU", "JP",
   "KR", "SG", "IN", "BR", "IT", "ES", "SE", "NO", "FI", "DK",
@@ -20,28 +18,18 @@ const KNOWN_CODES = new Set([
   "EG", "KE", "NG", "LT", "LV", "EE", "RS", "SK", "SI", "LU",
 ]);
 
-/** UK is commonly used but ISO code is GB. */
 function normalise(code: string): string {
   return code === "UK" ? "GB" : code;
 }
 
-/**
- * Try to extract a country code from a proxy instance name.
- *
- * Heuristics (in order):
- *  1. Explicit tag like `[US]` or `(DE)` — case-insensitive
- *  2. Standalone 2-letter token that matches a known code (e.g. "Proxy US 01")
- *  3. Common country names / city hints
- */
 export function extractCountryCode(name: string): string | null {
-  // 1. Bracket / paren tags
+  
   const bracketMatch = name.match(/[\[(]([A-Za-z]{2})[\])]/);
   if (bracketMatch) {
     const code = bracketMatch[1].toUpperCase();
     if (KNOWN_CODES.has(code)) return normalise(code);
   }
 
-  // 2. Standalone 2-letter token
   const tokens = name.toUpperCase().split(/[\s\-_.,;:]+/);
   for (const token of tokens) {
     if (token.length === 2 && KNOWN_CODES.has(token)) {
@@ -49,7 +37,6 @@ export function extractCountryCode(name: string): string | null {
     }
   }
 
-  // 3. Common name / city hints
   const lower = name.toLowerCase();
   const hints: Record<string, string> = {
     "united states": "US", "america": "US", "new york": "US", "los angeles": "US",
@@ -91,22 +78,13 @@ export function extractCountryCode(name: string): string | null {
   return null;
 }
 
-/**
- * Return an emoji flag for a proxy name, or null if no country detected.
- */
 export function getFlagForName(name: string): string | null {
   const code = extractCountryCode(name);
   return code ? codeToFlag(code) : null;
 }
 
-/**
- * Alias for getFlagForName — used in ProxyCard / ProxyDetailPage.
- */
 export const detectCountryFlag = getFlagForName;
 
-/**
- * Get 2-letter initials from a name (fallback when no country detected).
- */
 export function getInitials(name: string): string {
   const words = name.trim().split(/\s+/);
   if (words.length >= 2) {
@@ -115,9 +93,6 @@ export function getInitials(name: string): string {
   return name.slice(0, 2).toUpperCase();
 }
 
-/**
- * Options array for country selector (AddProxyDialog).
- */
 export const COUNTRY_OPTIONS = [
   ...Array.from(KNOWN_CODES).sort().map((code) => ({
     value: code,

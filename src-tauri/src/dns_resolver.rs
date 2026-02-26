@@ -5,7 +5,6 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
 
-/// DoH server presets.
 pub const DOH_CLOUDFLARE: &str = "https://cloudflare-dns.com/dns-query";
 pub const DOH_GOOGLE: &str = "https://dns.google/dns-query";
 pub const DOH_QUAD9: &str = "https://dns.quad9.net:5053/dns-query";
@@ -27,7 +26,6 @@ impl Default for DnsResolverConfig {
     }
 }
 
-/// Global DoH resolver state shared across the application.
 pub struct DohResolver {
     config: Arc<RwLock<DnsResolverConfig>>,
     client: reqwest::Client,
@@ -54,14 +52,12 @@ impl DohResolver {
         self.config.read().await.enabled
     }
 
-    /// Resolve a hostname to IP addresses using DNS-over-HTTPS (JSON API).
     pub async fn resolve(&self, hostname: &str) -> Result<Vec<IpAddr>> {
         let config = self.config.read().await.clone();
         if !config.enabled {
             return Err(anyhow!("DoH resolver is disabled"));
         }
 
-        // Try primary server first, then fallbacks.
         let mut servers = vec![config.primary_server.clone()];
         servers.extend(config.fallback_servers.iter().cloned());
 
@@ -83,7 +79,6 @@ impl DohResolver {
         Err(last_error)
     }
 
-    /// Perform a DoH query using the JSON API (RFC 8484 compatible).
     async fn resolve_with_server(&self, server: &str, hostname: &str) -> Result<Vec<IpAddr>> {
         let resp = self
             .client
@@ -107,7 +102,7 @@ impl DohResolver {
 
         let mut addrs = Vec::new();
         for answer in answers {
-            // Type 1 = A record, Type 28 = AAAA record
+            
             let rtype = answer.get("type").and_then(|t| t.as_u64()).unwrap_or(0);
             if rtype == 1 || rtype == 28 {
                 if let Some(data) = answer.get("data").and_then(|d| d.as_str()) {
@@ -121,7 +116,6 @@ impl DohResolver {
         Ok(addrs)
     }
 
-    /// Resolve a hostname to the first available IP address.
     pub async fn resolve_first(&self, hostname: &str) -> Result<IpAddr> {
         let addrs = self.resolve(hostname).await?;
         addrs
@@ -131,7 +125,6 @@ impl DohResolver {
     }
 }
 
-/// Check which DNS server is being used by making a query and inspecting the resolver.
 pub async fn detect_dns_servers() -> Vec<String> {
     let mut servers = Vec::new();
 

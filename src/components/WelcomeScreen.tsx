@@ -59,7 +59,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
             background: "radial-gradient(ellipse 90% 80% at 50% 50%, #180c08 0%, #0d0608 45%, #060408 100%)",
           }}
         >
-          {/* Dot grid */}
+          {}
           <div
             className="absolute inset-0 pointer-events-none"
             style={{
@@ -69,7 +69,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
             }}
           />
 
-          {/* Noise overlay */}
+          {}
           <div
             className="absolute inset-0 opacity-[0.035] pointer-events-none"
             style={{
@@ -78,7 +78,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
             }}
           />
 
-          {/* Warm glow orbs */}
+          {}
           <motion.div
             className="absolute pointer-events-none rounded-full"
             style={{
@@ -116,7 +116,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
             transition={{ duration: 9, repeat: Infinity, ease: "easeInOut", delay: 1 }}
           />
 
-          {/* Floating particles */}
+          {}
           {PARTICLES.map((p, i) => (
             <motion.div
               key={i}
@@ -144,12 +144,12 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
             />
           ))}
 
-          {/* ── Main content ─────────────────────────── */}
+          {}
           <div className="relative z-10 flex flex-col items-center">
 
-            {/* Icon */}
+            {}
             <div className="mb-9 relative">
-              {/* Glow ring */}
+              {}
               <motion.div
                 className="absolute pointer-events-none rounded-[1.5rem]"
                 style={{
@@ -161,7 +161,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
                 transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
               />
 
-              {/* Icon box */}
+              {}
               <motion.div
                 className="relative w-[5.5rem] h-[5.5rem] rounded-[1.5rem] flex items-center justify-center"
                 style={{
@@ -181,7 +181,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
                     </linearGradient>
                   </defs>
 
-                  {/* Shield */}
+                  {}
                   <motion.path
                     d="M 256 64 L 416 128 L 416 256 C 416 368 352 448 256 480 C 160 448 96 368 96 256 L 96 128 Z"
                     stroke="url(#wg)"
@@ -193,7 +193,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
                     transition={{ delay: 0.35, duration: 0.8, ease: [0.4, 0, 0.2, 1] }}
                   />
 
-                  {/* Routing path */}
+                  {}
                   <motion.path
                     d="M 160 304 L 256 176 L 352 304"
                     fill="none"
@@ -206,7 +206,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
                     transition={{ delay: 0.85, duration: 0.45, ease: "easeOut" }}
                   />
 
-                  {/* Nodes */}
+                  {}
                   {NODES.map((node, i) => (
                     <motion.circle
                       key={i}
@@ -229,7 +229,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
               </motion.div>
             </div>
 
-            {/* Title — staggered blur-in */}
+            {}
             <div className="flex items-baseline mb-3" style={{ gap: "0.02em" }}>
               {LETTERS.map((l, i) => (
                 <motion.span
@@ -249,7 +249,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
               ))}
             </div>
 
-            {/* Subtitle */}
+            {}
             <motion.p
               className="text-white/45 text-[0.75rem] font-medium uppercase"
               style={{ letterSpacing: "0.18em" }}
@@ -261,7 +261,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
             </motion.p>
           </div>
 
-          {/* Continue button */}
+          {}
           <motion.div
             className="absolute bottom-10 right-10"
             initial={{ opacity: 0, y: 10 }}
@@ -279,7 +279,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
                 backdropFilter: "blur(12px)",
               }}
             >
-              {/* Shimmer sweep */}
+              {}
               <motion.span
                 className="absolute inset-0 pointer-events-none"
                 style={{
@@ -308,7 +308,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
             </motion.button>
           </motion.div>
 
-          {/* Version tag bottom-left */}
+          {}
           <motion.div
             className="absolute bottom-10 left-10 text-white/20 text-[0.6875rem] font-medium"
             style={{ letterSpacing: "0.06em" }}

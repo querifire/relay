@@ -56,7 +56,7 @@ export default function LeakTestPage() {
       </header>
 
       <div className="space-y-8 max-w-2xl">
-        {/* Instance selector */}
+        {}
         <div className="flex items-end gap-4">
           <div className="flex-1">
             <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
@@ -78,10 +78,10 @@ export default function LeakTestPage() {
           </button>
         </div>
 
-        {/* Results */}
+        {}
         {result && (
           <div className="space-y-6">
-            {/* IP Leak Test */}
+            {}
             <div className="bg-surface-card border border-border rounded-card p-6">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-[0.9375rem] font-semibold">IP Leak Test</h2>
@@ -112,7 +112,7 @@ export default function LeakTestPage() {
               </div>
             </div>
 
-            {/* DNS Leak Test */}
+            {}
             <div className="bg-surface-card border border-border rounded-card p-6">
               <div className="flex items-center justify-between mb-5">
                 <h2 className="text-[0.9375rem] font-semibold">DNS Leak Test</h2>
@@ -150,7 +150,7 @@ export default function LeakTestPage() {
           </div>
         )}
 
-        {/* Placeholder when no results */}
+        {}
         {!result && !testing && (
           <div className="bg-surface-card border border-border rounded-card p-10 text-center">
             <div className="text-foreground-muted text-[0.875rem]">

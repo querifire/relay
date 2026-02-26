@@ -2,18 +2,17 @@ use crate::proxy_instance::{push_to_sink, LogSink};
 use crate::proxy_type::{Proxy, ProxyProtocol};
 use anyhow::Result;
 use serde::{Deserialize, Serialize};
-use std::net::IpAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use tokio::fs;
 
-/// A user-defined proxy list source.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyListConfig {
     pub id: String,
     pub name: String,
-    /// Remote URLs whose text content is a list of `host:port` proxies.
+    
     pub urls: Vec<String>,
-    /// Proxy addresses entered inline by the user (one per entry).
+    
     pub inline_proxies: Vec<String>,
 }
 
@@ -52,7 +51,20 @@ pub async fn find_by_id(id: &str) -> Option<ProxyListConfig> {
     load_all().await.into_iter().find(|l| l.id == id)
 }
 
-/// Reject URLs that could target localhost, private networks, or cloud metadata (SSRF prevention).
+fn is_public_ip(ip: IpAddr) -> bool {
+    match ip {
+        IpAddr::V4(a) => {
+            !a.is_loopback() && !a.is_private() && !a.is_link_local() && !a.is_unspecified()
+        }
+        IpAddr::V6(a) => {
+            !a.is_loopback()
+                && !a.is_unspecified()
+                
+                && (a.segments()[0] & 0xfe00) != 0xfc00
+        }
+    }
+}
+
 fn is_proxy_list_url_allowed(url_str: &str) -> Result<bool, String> {
     let url = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {}", e))?;
     if url.scheme() != "http" && url.scheme() != "https" {
@@ -64,38 +76,49 @@ fn is_proxy_list_url_allowed(url_str: &str) -> Result<bool, String> {
         return Ok(false);
     }
     if let Ok(ip) = host.parse::<IpAddr>() {
-        match ip {
-            IpAddr::V4(a) => {
-                // Loopback, private, link-local (e.g. cloud metadata 169.254.169.254)
-                if a.is_loopback()
-                    || a.is_private()
-                    || a.is_link_local()
-                    || a.is_unspecified()
-                {
-                    return Ok(false);
-                }
-            }
-            IpAddr::V6(a) => {
-                if a.is_loopback() || a.is_unspecified() {
-                    return Ok(false);
-                }
-                // Unique local (fc00::/7)
-                if (a.segments()[0] & 0xfe00) == 0xfc00 {
-                    return Ok(false);
-                }
-            }
+        if !is_public_ip(ip) {
+            return Ok(false);
         }
     }
     Ok(true)
 }
 
-/// Fetch proxies described by a [`ProxyListConfig`].
-///
-/// 1. Parses `inline_proxies` entries directly.
-/// 2. Fetches each URL and parses the response text.
-///
-/// `protocol` is used as the default when the proxy line does not include an
-/// explicit protocol prefix (e.g. `socks5://`).
+async fn resolve_and_validate_url(
+    url_str: &str,
+) -> Result<Option<Vec<SocketAddr>>, String> {
+    let url = url::Url::parse(url_str).map_err(|e| format!("Invalid URL: {}", e))?;
+    let host = url.host_str().ok_or("URL has no host")?;
+
+    if host.parse::<IpAddr>().is_ok() {
+        return Ok(None);
+    }
+
+    let default_port: u16 = if url.scheme() == "https" { 443 } else { 80 };
+    let port = url.port().unwrap_or(default_port);
+
+    let addrs: Vec<SocketAddr> = tokio::net::lookup_host(format!("{}:{}", host, port))
+        .await
+        .map_err(|e| format!("DNS resolution failed for '{}': {}", host, e))?
+        .collect();
+
+    if addrs.is_empty() {
+        return Err(format!("DNS resolution returned no addresses for '{}'", host));
+    }
+
+    for addr in &addrs {
+        if !is_public_ip(addr.ip()) {
+            return Err(format!(
+                "DNS rebinding protection: '{}' resolves to a private/local IP address ({}). \
+                 Request blocked.",
+                host,
+                addr.ip()
+            ));
+        }
+    }
+
+    Ok(Some(addrs))
+}
+
 pub async fn fetch_from_config(
     config: &ProxyListConfig,
     protocol: ProxyProtocol,
@@ -120,38 +143,77 @@ pub async fn fetch_from_config(
         }
     }
 
-    // Remote URLs: SSRF protection (only http(s), no localhost/private/metadata)
     if !config.urls.is_empty() {
-        let client = match reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
-            .build()
-        {
-            Ok(c) => c,
-            Err(e) => {
-                tracing::warn!("Failed to create HTTP client: {}", e);
-                return all;
-            }
-        };
-
         for url in &config.urls {
-            if let Ok(false) = is_proxy_list_url_allowed(url) {
-                let msg = format!("  {} -> URL blocked (localhost/private/metadata): {}", config.name, url);
-                tracing::warn!("{}", msg);
-                if let Some(sink) = log_sink {
-                    push_to_sink(sink, &msg);
+            
+            match is_proxy_list_url_allowed(url) {
+                Ok(false) => {
+                    let msg = format!("  {} -> URL blocked (localhost/private/metadata): {}", config.name, url);
+                    tracing::warn!("{}", msg);
+                    if let Some(sink) = log_sink {
+                        push_to_sink(sink, &msg);
+                    }
+                    continue;
                 }
-                continue;
-            }
-            if let Err(e) = is_proxy_list_url_allowed(url) {
-                let msg = format!("  {} -> URL invalid: {} ({})", config.name, url, e);
-                tracing::debug!("{}", msg);
-                if let Some(sink) = log_sink {
-                    push_to_sink(sink, &msg);
+                Err(e) => {
+                    let msg = format!("  {} -> URL invalid: {} ({})", config.name, url, e);
+                    tracing::debug!("{}", msg);
+                    if let Some(sink) = log_sink {
+                        push_to_sink(sink, &msg);
+                    }
+                    continue;
                 }
-                continue;
+                Ok(true) => {}
             }
+
+            let resolved_addrs = match resolve_and_validate_url(url).await {
+                Ok(addrs) => addrs,
+                Err(e) => {
+                    let msg = format!("  {} -> DNS blocked: {}", config.name, e);
+                    tracing::warn!("{}", msg);
+                    if let Some(sink) = log_sink {
+                        push_to_sink(sink, &msg);
+                    }
+                    continue;
+                }
+            };
+
+            let parsed = match url::Url::parse(url) {
+                Ok(u) => u,
+                Err(e) => {
+                    tracing::warn!("URL parse error {}: {}", url, e);
+                    continue;
+                }
+            };
+            let host = match parsed.host_str() {
+                Some(h) => h.to_string(),
+                None => continue,
+            };
+            let default_port: u16 = if parsed.scheme() == "https" { 443 } else { 80 };
+            let port = parsed.port().unwrap_or(default_port);
+
+            let mut client_builder = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .redirect(reqwest::redirect::Policy::none())
+                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36");
+
+            if let Some(addrs) = resolved_addrs {
+                
+                let socket_addrs: Vec<SocketAddr> = addrs
+                    .into_iter()
+                    .map(|a| SocketAddr::new(a.ip(), port))
+                    .collect();
+                client_builder = client_builder.resolve_to_addrs(&host, &socket_addrs);
+            }
+
+            let client = match client_builder.build() {
+                Ok(c) => c,
+                Err(e) => {
+                    tracing::warn!("Failed to build HTTP client for {}: {}", url, e);
+                    continue;
+                }
+            };
+
             match client.get(url).send().await {
                 Ok(response) => match response.text().await {
                     Ok(text) => {
@@ -186,22 +248,12 @@ pub async fn fetch_from_config(
     all
 }
 
-/// Parse a multi-line text block into proxy addresses.
 fn parse_proxy_text(text: &str, default_protocol: &ProxyProtocol) -> Vec<Proxy> {
     text.lines()
         .filter_map(|line| parse_proxy_line(line, default_protocol))
         .collect()
 }
 
-/// Parse a single proxy line.
-///
-/// Supported formats:
-/// - `HOST:PORT` (host may be IP or domain, e.g. `proxy.example.com:1080`)
-/// - `IP:PORT:USER:PASS`
-/// - `USER:PASS@HOST:PORT`
-/// - `PROTOCOL://HOST:PORT`
-/// - `PROTOCOL://USER:PASS@HOST:PORT`
-/// - `HOST:PORT@USER:PASS`
 fn parse_proxy_line(line: &str, default_protocol: &ProxyProtocol) -> Option<Proxy> {
     let line = line.trim();
     if line.is_empty() || line.starts_with('#') {

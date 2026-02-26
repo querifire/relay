@@ -19,30 +19,37 @@ use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-/// Manages multiple proxy instances, each with its own local SOCKS5 server.
 pub struct ProxyManager {
     instances: HashMap<Uuid, ProxyInstance>,
     pub default_concurrency: usize,
 }
 
-/// Maximum number of proxy instances allowed.
 const MAX_INSTANCES: usize = 100;
 
-/// Normalize bind address: default to 127.0.0.1 for empty. Reject 0.0.0.0 (open proxy risk).
 fn normalize_bind_addr(addr: String) -> Result<String, String> {
+    use std::net::IpAddr;
+
     let s = addr.trim();
     if s.is_empty() {
         return Ok("127.0.0.1".to_string());
     }
     if s == "0.0.0.0" || s.eq_ignore_ascii_case("::") {
         return Err(
-            "Binding to 0.0.0.0 or :: makes the proxy accessible to the entire network. Use 127.0.0.1 for local-only access.".into()
+            "Binding to 0.0.0.0 or :: makes the proxy accessible to the entire network. \
+             Use 127.0.0.1 for local-only access."
+                .into(),
         );
+    }
+    
+    if s.parse::<IpAddr>().is_err() {
+        return Err(format!(
+            "Invalid bind address '{}': must be a valid IPv4 or IPv6 address (e.g. 127.0.0.1).",
+            s
+        ));
     }
     Ok(s.to_string())
 }
 
-/// Path to the persisted instances file.
 fn instances_path() -> PathBuf {
     let base = dirs::config_dir().unwrap_or_else(|| {
         std::env::current_exe()
@@ -143,7 +150,7 @@ impl ProxyManager {
         if port == 0 {
             return Err(anyhow!("Port must be between 1 and 65535"));
         }
-        // SOCKS4 does not support authentication; allowing auth would create an open proxy.
+        
         if local_protocol == ProxyProtocol::Socks4 {
             let has_auth = auth_username.as_ref().map_or(false, |u| !u.is_empty())
                 || auth_password.as_ref().map_or(false, |p| !p.is_empty());
@@ -175,7 +182,6 @@ impl ProxyManager {
         Ok(info)
     }
 
-    /// Get the anonymity level Arc for an instance (for updating from background tasks).
     pub fn get_anonymity_arc(
         &self,
         id: Uuid,
@@ -183,7 +189,6 @@ impl ProxyManager {
         self.instances.get(&id).map(|i| i.anonymity_level.clone())
     }
 
-    /// Phase 1: validate & set status to Starting.
     pub fn mark_starting(
         &mut self,
         id: Uuid,
@@ -223,7 +228,6 @@ impl ProxyManager {
         ))
     }
 
-    /// Phase 2: store upstream, spawn the local server, mark Running.
     pub fn finish_start(
         &mut self,
         id: Uuid,
@@ -323,7 +327,6 @@ impl ProxyManager {
         Ok(instance.to_info())
     }
 
-    /// Phase 2 (Tor mode): store the Tor child process handle, mark Running.
     pub fn finish_start_tor(
         &mut self,
         id: Uuid,
@@ -452,8 +455,12 @@ impl ProxyManager {
         list.into_iter().map(|i| i.to_info()).collect()
     }
 
-    /// Returns (allowed_ports, upstream_hosts) for running instances for kill-switch.
-    /// Upstream hosts are resolved to IPs by the caller; loopback is allowed separately.
+    pub fn get_all_saved(&self) -> Vec<crate::proxy_instance::SavedInstance> {
+        let mut list: Vec<_> = self.instances.values().collect();
+        list.sort_by_key(|i| i.created_at);
+        list.into_iter().map(|i| i.to_saved()).collect()
+    }
+
     pub fn get_running_kill_switch_context(&self) -> (Vec<u16>, Vec<String>) {
         let mut ports = Vec::new();
         let mut hosts = HashSet::new();
@@ -493,7 +500,6 @@ impl ProxyManager {
         Ok(instance.get_logs())
     }
 
-    /// Return all instances that have auto_start_on_boot = true.
     pub fn get_auto_start_ids(&self) -> Vec<Uuid> {
         self.instances
             .values()
@@ -502,7 +508,6 @@ impl ProxyManager {
             .collect()
     }
 
-    /// Get context needed for changing IP on a running instance.
     pub fn get_change_ip_context(
         &self,
         id: Uuid,
@@ -534,8 +539,6 @@ impl ProxyManager {
         Ok(instance.to_info())
     }
 
-    /// Discover the fastest upstream proxy automatically.
-    /// Returns the selected proxy WITH its measured latency.
     pub async fn auto_discover_upstream(
         concurrency: usize,
         log_sink: LogSink,
@@ -627,8 +630,6 @@ impl ProxyManager {
         Ok(fastest)
     }
 
-    /// Background task that periodically re-tests cached proxies and rotates
-    /// the upstream proxy to a different fastest one (excluding the current).
     async fn rotation_loop(
         upstream_shared: Arc<RwLock<Option<Proxy>>>,
         upstream_latency_ms: Arc<AtomicU64>,
@@ -721,7 +722,6 @@ impl ProxyManager {
                     merged.extend(working);
                     let _ = proxy_cache::save_cache(&merged).await;
 
-                    // Exclude current proxy from rotation candidates (avoid no-op switch).
                     let current = upstream_shared.read().clone();
                     let candidates: Vec<_> = tested.iter()
                         .filter(|p| current.as_ref().map_or(true, |c| c.host != p.proxy.host || c.port != p.proxy.port))
@@ -828,7 +828,6 @@ impl ProxyManager {
         Ok(instance.to_info())
     }
 
-    /// Update the per-instance rotation interval.
     pub fn update_auto_rotate_minutes(&mut self, id: Uuid, minutes: u64) -> Result<ProxyInstanceInfo> {
         let minutes = minutes.clamp(1, 1440);
         let instance = self
@@ -873,7 +872,6 @@ impl ProxyManager {
         Ok(instance.to_info())
     }
 
-    /// Run proxy tests with periodic progress updates written to `log_sink`.
     async fn test_with_progress(
         proxies: Vec<Proxy>,
         concurrency: usize,

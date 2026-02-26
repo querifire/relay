@@ -1,8 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useSettings } from "../hooks/useSettings";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
-import type { AppSettings, KillSwitchConfig as KillSwitchStatus } from "../types";
+import type { AppSettings, KillSwitchConfig as KillSwitchStatus, NotificationSettings, Profile, SaveProfileRequest } from "../types";
 import CustomSelect from "../components/CustomSelect";
 
 function Toggle({
@@ -85,6 +85,19 @@ export default function SettingsPage() {
   const [killSwitchStatus, setKillSwitchStatus] = useState<KillSwitchStatus | null>(null);
   const [tlsHash, setTlsHash] = useState<string>("");
 
+  const [profiles, setProfiles] = useState<Profile[]>([]);
+  const [profileName, setProfileName] = useState("");
+  const [profileDesc, setProfileDesc] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [loadingProfileId, setLoadingProfileId] = useState<string | null>(null);
+
+  const [exporting, setExporting] = useState(false);
+  const [exportedPath, setExportedPath] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importSuccess, setImportSuccess] = useState(false);
+  const importFileRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     if (settings) setForm({ ...settings });
   }, [settings]);
@@ -98,6 +111,7 @@ export default function SettingsPage() {
   useEffect(() => {
     invoke<KillSwitchStatus>("get_kill_switch_status").then(setKillSwitchStatus).catch(() => {});
     invoke<string>("get_tls_fingerprint_hash").then(setTlsHash).catch(() => {});
+    invoke<Profile[]>("list_profiles").then(setProfiles).catch(() => {});
   }, []);
 
   const handleAutostartToggle = async () => {
@@ -157,7 +171,7 @@ export default function SettingsPage() {
         </h1>
       </header>
 
-      {/* ── General ─────────────────────────────────────────── */}
+      {}
       <SectionLabel>General</SectionLabel>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-8">
         <Card>
@@ -208,10 +222,10 @@ export default function SettingsPage() {
         </Card>
       </div>
 
-      {/* ── Privacy & Security ──────────────────────────────── */}
+      {}
       <SectionLabel>Privacy & Security</SectionLabel>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
-        {/* DNS Protection */}
+        {}
         <Card>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
@@ -263,7 +277,7 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        {/* Kill-Switch */}
+        {}
         <Card>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
@@ -299,7 +313,7 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        {/* TLS Fingerprint */}
+        {}
         <Card>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
@@ -358,7 +372,7 @@ export default function SettingsPage() {
           )}
         </Card>
 
-        {/* Autostart */}
+        {}
         <Card>
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2.5">
@@ -397,36 +411,281 @@ export default function SettingsPage() {
         </Card>
       </div>
 
-      {/* ── Tor ─────────────────────────────────────────────── */}
-      <SectionLabel>Tor</SectionLabel>
+      {}
+      <SectionLabel>Profiles</SectionLabel>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+        {}
         <Card>
-          <div className="flex items-center gap-2.5 mb-4">
-            <div className="w-8 h-8 rounded-[0.625rem] bg-[#9B6DD7]/15 flex items-center justify-center flex-shrink-0">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
-                <circle cx="12" cy="12" r="10" stroke="#9B6DD7" strokeWidth="1.8" fill="none"/>
-                <circle cx="12" cy="12" r="6.5" stroke="#9B6DD7" strokeWidth="1.8" fill="none"/>
-                <circle cx="12" cy="12" r="3" fill="#9B6DD7"/>
-              </svg>
-            </div>
-            <CardTitle>Tor Binary Path</CardTitle>
-          </div>
-          <input
-            type="text"
-            value={form.tor_binary_path ?? ""}
-            onChange={(e) =>
-              update({ tor_binary_path: e.target.value || null })
-            }
-            placeholder={navigator.platform.startsWith("Win") ? "C:\\Tor\\tor.exe" : "/usr/bin/tor"}
-            className="w-full px-3 py-2.5 text-[0.875rem] bg-surface border border-border rounded-button outline-none focus:border-border-focus transition-colors placeholder:text-foreground-muted/50 font-mono"
-          />
+          <CardTitle className="mb-3">Save Current as Profile</CardTitle>
           <CardDescription>
-            Full path to the Tor executable (.exe on Windows).
+            Snapshot the current settings to quickly restore them later.
           </CardDescription>
+          <div className="mt-4 space-y-3">
+            <input
+              type="text"
+              value={profileName}
+              onChange={(e) => setProfileName(e.target.value)}
+              placeholder="Profile name"
+              className="w-full px-3 py-2.5 text-[0.875rem] bg-surface border border-border rounded-button outline-none focus:border-border-focus transition-colors"
+            />
+            <input
+              type="text"
+              value={profileDesc}
+              onChange={(e) => setProfileDesc(e.target.value)}
+              placeholder="Description (optional)"
+              className="w-full px-3 py-2.5 text-[0.875rem] bg-surface border border-border rounded-button outline-none focus:border-border-focus transition-colors"
+            />
+            <button
+              disabled={!profileName.trim() || profileSaving}
+              onClick={async () => {
+                if (!form || !profileName.trim()) return;
+                setProfileSaving(true);
+                try {
+                  const req: SaveProfileRequest = {
+                    id: null,
+                    name: profileName.trim(),
+                    description: profileDesc.trim() || null,
+                    settings: form,
+                    instances: [],
+                  };
+                  const created = await invoke<Profile>("save_profile", { req });
+                  setProfiles((prev) => [...prev, created]);
+                  setProfileName("");
+                  setProfileDesc("");
+                } catch (err) {
+                  console.error("Failed to save profile:", err);
+                } finally {
+                  setProfileSaving(false);
+                }
+              }}
+              className="h-9 px-5 rounded-button text-[0.8125rem] font-medium bg-foreground text-surface hover:opacity-80 transition-all disabled:opacity-50"
+            >
+              {profileSaving ? "Saving…" : "Save Profile"}
+            </button>
+          </div>
+        </Card>
+
+        {}
+        <Card>
+          <CardTitle className="mb-3">Saved Profiles</CardTitle>
+          {profiles.length === 0 ? (
+            <p className="text-[0.8125rem] text-foreground-muted">No profiles saved yet.</p>
+          ) : (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {profiles.map((p) => (
+                <div
+                  key={p.id}
+                  className="flex items-center justify-between gap-2 px-3 py-2 rounded-button border border-border bg-surface"
+                >
+                  <div className="min-w-0">
+                    <div className="text-[0.8125rem] font-medium truncate">{p.name}</div>
+                    {p.description && (
+                      <div className="text-[0.6875rem] text-foreground-muted truncate">
+                        {p.description}
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button
+                      disabled={loadingProfileId === p.id}
+                      onClick={async () => {
+                        setLoadingProfileId(p.id);
+                        try {
+                          const loaded = await invoke<AppSettings>("load_profile", { id: p.id });
+                          setForm(loaded);
+                        } catch (err) {
+                          console.error("Failed to load profile:", err);
+                        } finally {
+                          setLoadingProfileId(null);
+                        }
+                      }}
+                      className="h-7 px-2.5 rounded-button text-[0.6875rem] font-medium border border-border hover:bg-surface-hover transition-colors disabled:opacity-50"
+                    >
+                      {loadingProfileId === p.id ? "Loading…" : "Load"}
+                    </button>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await invoke("delete_profile", { id: p.id });
+                          setProfiles((prev) => prev.filter((x) => x.id !== p.id));
+                        } catch (err) {
+                          console.error("Failed to delete profile:", err);
+                        }
+                      }}
+                      className="h-7 px-2.5 rounded-button text-[0.6875rem] bg-[rgba(255,59,48,0.1)] text-[#FF3B30] transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </Card>
       </div>
 
-      {/* ── Save ────────────────────────────────────────────── */}
+      {}
+      <SectionLabel>Notifications</SectionLabel>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+        <Card>
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-8 h-8 rounded-[0.625rem] bg-[#E89E6B]/15 flex items-center justify-center flex-shrink-0">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 22c1.1 0 2-.9 2-2h-4c0 1.1.9 2 2 2zm6-6v-5c0-3.07-1.63-5.64-4.5-6.32V4c0-.83-.67-1.5-1.5-1.5s-1.5.67-1.5 1.5v.68C7.64 5.36 6 7.92 6 11v5l-2 2v1h16v-1l-2-2z" fill="#E89E6B"/>
+                </svg>
+              </div>
+              <CardTitle>Desktop Notifications</CardTitle>
+            </div>
+            <Toggle
+              checked={form.notifications?.enabled ?? false}
+              onChange={() =>
+                update({
+                  notifications: {
+                    ...(form.notifications ?? {
+                      enabled: false,
+                      proxy_start: true,
+                      proxy_stop: false,
+                      proxy_error: true,
+                      ip_changed: false,
+                      kill_switch: true,
+                      leak: true,
+                      tor: false,
+                    }),
+                    enabled: !(form.notifications?.enabled ?? false),
+                  },
+                })
+              }
+            />
+          </div>
+          <CardDescription>
+            Show OS notifications for important events.
+          </CardDescription>
+          {form.notifications?.enabled && (
+            <div className="mt-4 pt-4 border-t border-border space-y-3">
+              {(
+                [
+                  { key: "proxy_start", label: "Proxy started" },
+                  { key: "proxy_stop", label: "Proxy stopped" },
+                  { key: "proxy_error", label: "Proxy error" },
+                  { key: "ip_changed", label: "IP changed" },
+                  { key: "kill_switch", label: "Kill-switch activated" },
+                  { key: "leak", label: "Leak detected" },
+                  { key: "tor", label: "Tor events" },
+                ] as Array<{ key: keyof NotificationSettings; label: string }>
+              ).map(({ key, label }) => (
+                <div key={key} className="flex items-center justify-between">
+                  <span className="text-[0.8125rem]">{label}</span>
+                  <Toggle
+                    checked={(form.notifications?.[key] ?? false) as boolean}
+                    onChange={() =>
+                      update({
+                        notifications: {
+                          ...(form.notifications as NotificationSettings),
+                          [key]: !(form.notifications?.[key] ?? false),
+                        },
+                      })
+                    }
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {}
+      <SectionLabel>Import & Export</SectionLabel>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+        <Card>
+          <CardTitle className="mb-2">Export Configuration</CardTitle>
+          <CardDescription>
+            Save all settings, profiles, split-tunnel rules and schedules to a
+            JSON file in your Downloads folder.
+          </CardDescription>
+          <div className="mt-4">
+            <button
+              disabled={exporting}
+              onClick={async () => {
+                setExporting(true);
+                setExportedPath(null);
+                try {
+                  const result = await invoke<{ path: string }>("export_config");
+                  setExportedPath(result.path);
+                } catch (err) {
+                  console.error("Export failed:", err);
+                } finally {
+                  setExporting(false);
+                }
+              }}
+              className="h-9 px-5 rounded-button text-[0.8125rem] font-medium bg-foreground text-surface hover:opacity-80 disabled:opacity-50 transition-all"
+            >
+              {exporting ? "Exporting…" : "Export"}
+            </button>
+            {exportedPath && (
+              <p className="text-[0.6875rem] text-foreground-muted mt-2 font-mono break-all">
+                Saved to: {exportedPath}
+              </p>
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <CardTitle className="mb-2">Import Configuration</CardTitle>
+          <CardDescription>
+            Restore settings, profiles, rules and schedules from a previously
+            exported JSON file. Current settings will be replaced.
+          </CardDescription>
+          <div className="mt-4 space-y-2">
+            <input
+              ref={importFileRef}
+              type="file"
+              accept=".json"
+              className="hidden"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                setImporting(true);
+                setImportError(null);
+                setImportSuccess(false);
+                try {
+                  const json = await file.text();
+                  await invoke("import_config", { json });
+                  setImportSuccess(true);
+                  setTimeout(() => setImportSuccess(false), 3000);
+                  
+                  const updated = await invoke<AppSettings>("get_settings");
+                  setForm(updated);
+                } catch (err) {
+                  setImportError(String(err));
+                } finally {
+                  setImporting(false);
+                  if (importFileRef.current) importFileRef.current.value = "";
+                }
+              }}
+            />
+            <button
+              disabled={importing}
+              onClick={() => importFileRef.current?.click()}
+              className="h-9 px-5 rounded-button text-[0.8125rem] font-medium border border-border hover:bg-surface-hover disabled:opacity-50 transition-all"
+            >
+              {importing ? "Importing…" : "Choose file…"}
+            </button>
+            {importSuccess && (
+              <p className="text-[0.6875rem] text-[#30D158]">
+                Import successful. Settings have been applied.
+              </p>
+            )}
+            {importError && (
+              <p className="text-[0.6875rem] text-[#FF3B30] break-all">
+                Error: {importError}
+              </p>
+            )}
+          </div>
+        </Card>
+      </div>
+
+      {}
       <div className="flex justify-end">
         <button
           onClick={handleSave}

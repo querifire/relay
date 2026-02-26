@@ -12,11 +12,11 @@ import { invoke } from "@tauri-apps/api/core";
 import type { ProxyInstanceInfo, ProxyMode, ProxyProtocol, ProxyChainConfig } from "../types";
 
 interface ProxyContextValue {
-  /** All proxy instances (polled from backend). */
+  
   instances: ProxyInstanceInfo[];
-  /** True only until the first successful fetch completes. */
+  
   loading: boolean;
-  /** Set of instance IDs currently performing a short action (stop/delete). */
+  
   busyIds: Set<string>;
   refresh: () => Promise<void>;
   createInstance: (
@@ -32,7 +32,7 @@ interface ProxyContextValue {
     autoRotateMinutes?: number | null,
     proxyChain?: ProxyChainConfig | null,
   ) => Promise<void>;
-  /** Fire-and-forget — backend tracks "Starting" status. */
+  
   startInstance: (
     id: string,
     upstream?: { host: string; port: number; protocol: string },
@@ -73,12 +73,10 @@ export function ProxyProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Initial fetch
   useEffect(() => {
     refresh();
   }, [refresh]);
 
-  // Adaptive polling: 3s when any instance is Running/Starting, 10s otherwise; pause when tab hidden
   useEffect(() => {
     const hasActive = instances.some(
       (i) => i.status === "Running" || i.status === "Starting"

@@ -21,7 +21,6 @@ export default function CustomSelect({
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
@@ -37,7 +36,7 @@ export default function CustomSelect({
 
   return (
     <div ref={ref} className="relative">
-      {/* Trigger */}
+      {}
       <button
         type="button"
         onClick={() => setOpen(!open)}
@@ -61,7 +60,7 @@ export default function CustomSelect({
         </svg>
       </button>
 
-      {/* Dropdown */}
+      {}
       {open && (
         <div className="absolute z-50 mt-1 w-full max-h-[14rem] overflow-auto bg-surface-card border border-border rounded-button shadow-float py-1 animate-in fade-in slide-in-from-top-1 duration-150">
           {options.map((opt) => (

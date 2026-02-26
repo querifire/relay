@@ -6,8 +6,6 @@ import {
 } from "../hooks/useProxyLists";
 import type { ProxyListConfig } from "../types";
 
-/* ── Icon components ─────────────────────────────────────────── */
-
 function RefreshIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
@@ -49,8 +47,6 @@ function DeleteIcon() {
   );
 }
 
-/* ── Mixed-input parser ──────────────────────────────────────── */
-
 function parseInputLines(raw: string): { urls: string[]; proxies: string[] } {
   const lines = raw
     .split("\n")
@@ -59,7 +55,7 @@ function parseInputLines(raw: string): { urls: string[]; proxies: string[] } {
   const urls: string[] = [];
   const proxies: string[] = [];
   for (const line of lines) {
-    if (/^https?:\/\//i.test(line)) {
+    if (/^https?:\/\
       urls.push(line);
     } else {
       proxies.push(line);
@@ -67,8 +63,6 @@ function parseInputLines(raw: string): { urls: string[]; proxies: string[] } {
   }
   return { urls, proxies };
 }
-
-/* ── Format Guide Modal ──────────────────────────────────────── */
 
 function FormatGuideModal({ onClose }: { onClose: () => void }) {
   const formats = [
@@ -123,9 +117,9 @@ function FormatGuideModal({ onClose }: { onClose: () => void }) {
             <p className="text-[0.75rem] text-foreground-muted leading-relaxed">
               You can mix proxy addresses and URL links in the same input — each
               line is parsed independently. Lines starting with{" "}
-              <code className="bg-surface-hover px-1 py-0.5 rounded-[0.25rem]">http://</code>{" "}
+              <code className="bg-surface-hover px-1 py-0.5 rounded-[0.25rem]">http:
               or{" "}
-              <code className="bg-surface-hover px-1 py-0.5 rounded-[0.25rem]">https://</code>{" "}
+              <code className="bg-surface-hover px-1 py-0.5 rounded-[0.25rem]">https:
               are treated as remote list URLs; everything else is parsed as a
               proxy address.
             </p>
@@ -143,8 +137,6 @@ function FormatGuideModal({ onClose }: { onClose: () => void }) {
     </div>
   );
 }
-
-/* ── Edit Source Modal ────────────────────────────────────────── */
 
 function EditSourceModal({
   config,
@@ -270,24 +262,18 @@ function EditSourceModal({
   );
 }
 
-/* ── Page ─────────────────────────────────────────────────────── */
-
 export default function ProxyListsPage() {
   const { lists, saveList, deleteList } = useProxyLists();
   const { stats, refresh: refreshStats } = useProxyCacheStats();
 
-  // ── Form state ───────────────────────────────────────────────
   const [sourceName, setSourceName] = useState("");
   const [sourceData, setSourceData] = useState("");
 
-  // ── Refresh state per custom list ────────────────────────────
   const [refreshingIds, setRefreshingIds] = useState<Set<string>>(new Set());
 
-  // ── Modals ───────────────────────────────────────────────────
   const [editingConfig, setEditingConfig] = useState<ProxyListConfig | null>(null);
   const [showFormatGuide, setShowFormatGuide] = useState(false);
 
-  // ── Computed ─────────────────────────────────────────────────
   const cachedTotal = stats?.total ?? 0;
   const totalProxies =
     cachedTotal +
@@ -298,8 +284,6 @@ export default function ProxyListsPage() {
 
   const lastSyncTs = stats?.last_updated ?? 0;
   const lastSyncDate = lastSyncTs > 0 ? new Date(lastSyncTs * 1000) : null;
-
-  // ── Handlers ─────────────────────────────────────────────────
 
   async function handleAddSource() {
     if (!sourceName.trim() && !sourceData.trim()) return;
@@ -346,7 +330,6 @@ export default function ProxyListsPage() {
     }
   }
 
-  // ── Helper: display string for a config ──────────────────────
   function configDisplayUrl(config: ProxyListConfig): string {
     if (config.urls.length > 0) return config.urls[0];
     if (config.inline_proxies.length > 0)
@@ -366,7 +349,7 @@ export default function ProxyListsPage() {
 
   return (
     <div>
-      {/* ── Modals ──────────────────────────────────────────────── */}
+      {}
       {showFormatGuide && (
         <FormatGuideModal onClose={() => setShowFormatGuide(false)} />
       )}
@@ -379,7 +362,7 @@ export default function ProxyListsPage() {
         />
       )}
 
-      {/* ── Header ──────────────────────────────────────────────── */}
+      {}
       <header className="mb-8">
         <div className="flex gap-2 text-foreground-muted text-[0.8125rem] mb-3 items-center">
           <span>Proxies</span>
@@ -391,11 +374,11 @@ export default function ProxyListsPage() {
         </h1>
       </header>
 
-      {/* ── Grid layout ─────────────────────────────────────────── */}
+      {}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_20rem] gap-6 md:gap-8 max-w-[75rem]">
-        {/* ── Left content ──────────────────────────────────────── */}
+        {}
         <div>
-          {/* ── Import Proxy Source card ─────────────────────────── */}
+          {}
           <div className="bg-surface-card border border-border rounded-card p-6 mb-8">
             <div className="flex justify-between items-start mb-6">
               <div>
@@ -466,7 +449,7 @@ export default function ProxyListsPage() {
             </div>
           </div>
 
-          {/* ── Managed Sources table ───────────────────────────── */}
+          {}
           <div className="bg-surface-card border border-border rounded-card overflow-hidden">
             <div className="py-4 px-6 border-b border-border flex justify-between items-center bg-surface-hover">
               <span className="text-[0.875rem] font-semibold">Managed Sources</span>
@@ -475,7 +458,7 @@ export default function ProxyListsPage() {
               </div>
             </div>
 
-            {/* Built-in Default list */}
+            {}
             <div className="py-4 px-6 border-b border-border grid grid-cols-[2fr_1fr_1fr_6.25rem] items-center transition-colors duration-200 hover:bg-surface-hover">
               <div className="flex flex-col">
                 <div className="font-semibold text-foreground flex items-center gap-2">
@@ -507,7 +490,7 @@ export default function ProxyListsPage() {
               </div>
             </div>
 
-            {/* Custom sources */}
+            {}
             {lists.map((config) => (
               <div
                 key={config.id}
@@ -547,9 +530,9 @@ export default function ProxyListsPage() {
           </div>
         </div>
 
-        {/* ── Right stats panel ─────────────────────────────────── */}
+        {}
         <div className="flex flex-col gap-6">
-          {/* Total Active Proxies */}
+          {}
           <div className="bg-surface-card border border-border rounded-card p-5">
             <div className="text-[0.75rem] font-semibold text-foreground-muted uppercase tracking-[0.05em] mb-3">
               Total Active Proxies
@@ -570,7 +553,7 @@ export default function ProxyListsPage() {
             </div>
           </div>
 
-          {/* Sync Status */}
+          {}
           <div className="bg-surface-card border border-border rounded-card p-5">
             <div className="text-[0.75rem] font-semibold text-foreground-muted uppercase tracking-[0.05em] mb-3">
               Sync Status
@@ -621,7 +604,7 @@ export default function ProxyListsPage() {
             </div>
           </div>
 
-          {/* Integration Tip */}
+          {}
           <div className="border border-dashed border-border rounded-card p-5 bg-transparent opacity-80">
             <div className="text-[0.75rem] font-semibold text-foreground-muted uppercase tracking-[0.05em] mb-3">
               Integration Tip

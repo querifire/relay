@@ -8,7 +8,7 @@ pub enum ProxyProtocol {
     Https,
     Socks4,
     Socks5,
-    /// Tor circuit — reserved for future implementation
+    
     Tor,
 }
 

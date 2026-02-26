@@ -31,7 +31,6 @@ function instanceToRow(
     status = "offline";
   }
 
-  // Use upstream_latency_ms (from speed test) for displaying ms in the list.
   const upstreamMs = inst.upstream_latency_ms ?? 0;
   const avgMs = inst.stats?.avg_latency_ms ?? 0;
   const displayMs = upstreamMs > 0 ? upstreamMs : avgMs;
@@ -91,7 +90,6 @@ export default function ProxyPage() {
   const [startingSince, setStartingSince] = useState<Record<string, number>>({});
   const prevInstancesRef = useRef<ProxyInstanceInfo[]>([]);
 
-  // Track when each instance entered Starting so we can show "Connecting" after 2s
   useEffect(() => {
     const now = Date.now();
     setStartingSince((prev) => {

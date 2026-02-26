@@ -4,7 +4,6 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tokio::fs;
 
-/// Lightweight cache statistics returned to the frontend.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProxyCacheStats {
     pub total: usize,
@@ -82,8 +81,6 @@ pub async fn load_cache() -> Result<Vec<Proxy>> {
     Ok(cache.proxies)
 }
 
-/// Read cache stats without the 24-hour age gate.
-/// Returns zeroes if the cache file doesn't exist or is corrupt.
 pub async fn load_cache_stats() -> ProxyCacheStats {
     let path = get_cache_path();
     if !path.exists() {

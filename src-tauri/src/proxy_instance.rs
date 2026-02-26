@@ -11,10 +11,8 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
-/// Maximum log entries kept per instance.
 const MAX_LOGS: usize = 500;
 
-/// Push a message into any `LogSink` (standalone helper for code outside `ProxyInstance`).
 pub fn push_to_sink(sink: &LogSink, msg: impl Into<String>) {
     let mut logs = sink.lock();
     logs.push_back(msg.into());
@@ -23,7 +21,6 @@ pub fn push_to_sink(sink: &LogSink, msg: impl Into<String>) {
     }
 }
 
-/// Per-instance log sink shared between the manager and the running server.
 pub type LogSink = Arc<SyncMutex<VecDeque<String>>>;
 
 #[derive(Debug)]
@@ -32,7 +29,7 @@ pub struct ProxyStats {
     pub successful_requests: AtomicU64,
     pub total_latency_ms: AtomicU64,
     pub total_bytes: AtomicU64,
-    /// Latency of the most recent successful request (for chart fluctuations).
+    
     pub last_request_latency_ms: AtomicU64,
 }
 
@@ -87,7 +84,7 @@ pub struct ProxyStatsInfo {
     pub avg_latency_ms: u64,
     pub success_rate: f64,
     pub total_bytes: u64,
-    /// Latency of the most recent successful request.
+    
     pub last_request_latency_ms: u64,
 }
 
@@ -128,24 +125,22 @@ pub struct ProxyInstanceInfo {
     pub status: ProxyStatusInfo,
     pub upstream: Option<Proxy>,
     pub local_protocol: ProxyProtocol,
-    /// True if local proxy auth is configured (credentials not sent to frontend).
+    
     pub has_auth: bool,
     pub auto_rotate: bool,
     pub auto_rotate_minutes: Option<u64>,
     pub proxy_list: String,
     pub stats: ProxyStatsInfo,
-    /// Latency (ms) of the current upstream proxy from the last speed test.
+    
     pub upstream_latency_ms: u64,
-    /// Whether this instance should auto-start when the application launches on boot.
+    
     pub auto_start_on_boot: bool,
-    /// Anonymity level of the upstream proxy.
+    
     pub anonymity_level: Option<AnonymityLevel>,
-    /// Proxy chain configuration.
+    
     pub proxy_chain: Option<ProxyChainConfig>,
 }
 
-/// Minimal serializable representation persisted to disk.
-/// Passwords are stored encrypted in auth_password_encrypted.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SavedInstance {
     pub id: String,
@@ -157,10 +152,10 @@ pub struct SavedInstance {
     pub local_protocol: ProxyProtocol,
     #[serde(default)]
     pub auth_username: Option<String>,
-    /// Encrypted password (prefer over legacy auth_password).
+    
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auth_password_encrypted: Option<String>,
-    /// Legacy plaintext password (only for migration; do not write).
+    
     #[serde(default, alias = "auth_password")]
     pub auth_password_legacy: Option<String>,
     #[serde(default)]
@@ -169,12 +164,12 @@ pub struct SavedInstance {
     pub auto_rotate_minutes: Option<u64>,
     #[serde(default = "default_proxy_list")]
     pub proxy_list: String,
-    /// Unix timestamp (seconds) of when this instance was created.
+    
     #[serde(default = "default_created_at")]
     pub created_at: u64,
     #[serde(default)]
     pub auto_start_on_boot: bool,
-    /// Proxy chain configuration.
+    
     #[serde(default)]
     pub proxy_chain: Option<ProxyChainConfig>,
 }
@@ -268,8 +263,6 @@ impl ProxyInstance {
         }
     }
 
-    /// Restore from a saved snapshot (always starts as Stopped).
-    /// Decrypts password from auth_password_encrypted or uses legacy plaintext.
     pub fn from_saved(saved: SavedInstance) -> Self {
         let auth_password = saved
             .auth_password_encrypted
@@ -305,8 +298,6 @@ impl ProxyInstance {
         }
     }
 
-    /// Produce a serializable snapshot of this instance for the frontend.
-    /// Credentials are not sent; only has_auth is exposed.
     pub fn to_info(&self) -> ProxyInstanceInfo {
         let has_auth = self.auth_username.is_some() && self.auth_password.is_some();
         ProxyInstanceInfo {
@@ -330,7 +321,6 @@ impl ProxyInstance {
         }
     }
 
-    /// Produce a minimal snapshot for disk persistence (passwords encrypted).
     pub fn to_saved(&self) -> SavedInstance {
         let auth_password_encrypted = self
             .auth_password

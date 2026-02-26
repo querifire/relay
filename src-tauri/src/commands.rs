@@ -1,22 +1,33 @@
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use crate::anonymity_check::{self, AnonymityLevel};
+use crate::geoip;
+use crate::import_export;
 use crate::kill_switch::KillSwitchState;
 use crate::leak_test::{self, LeakTestResult};
+use crate::notifications;
+use crate::plugin_manager::PluginManager;
+use crate::plugin_sdk::PluginInfo;
+use crate::profiles::{self, Profile, SaveProfileRequest};
 use crate::proxy_chain::ProxyChainConfig;
 use crate::proxy_instance::{push_to_sink, ProxyInstanceInfo, ProxyStatusInfo};
 use crate::proxy_lists::{self, ProxyListConfig};
 use crate::proxy_manager::ProxyManager;
 use crate::proxy_type::{Proxy, ProxyMode, ProxyProtocol};
-use crate::settings::AppSettings;
+use crate::scheduler::{self, SaveScheduleRequest, Schedule};
+use crate::settings::{AppSettings, NotificationSettings};
 use crate::speed_test::ProxyWithSpeed;
+use crate::split_tunnel::{self, RoutingRule, SaveRoutingRuleRequest};
+use crate::system_proxy;
 use crate::tls_fingerprint;
 use crate::{proxy_cache, sources, speed_test};
+use serde::Serialize;
 use tauri::State;
 use tokio::sync::Mutex;
 use uuid::Uuid;
 
 pub struct ProxyManagerState(pub Mutex<ProxyManager>);
+pub struct PluginManagerState(pub Mutex<PluginManager>);
 pub struct SettingsState(pub Mutex<AppSettings>);
 pub struct KillSwitchStateWrapper(pub KillSwitchState);
 
@@ -24,7 +35,6 @@ fn map_err(e: impl std::fmt::Display) -> String {
     e.to_string()
 }
 
-/// Validate Tor binary path: if it looks like a path, require file to exist and name to be tor/tor.exe.
 fn validate_tor_binary_path(path: &str) -> Result<(), String> {
     let path_trim = path.trim();
     if path_trim.is_empty() {
@@ -117,6 +127,7 @@ pub async fn create_instance(
 /// blocked during the potentially long network operation.
 #[tauri::command]
 pub async fn start_instance(
+    app: tauri::AppHandle,
     manager: State<'_, ProxyManagerState>,
     settings: State<'_, SettingsState>,
     kill_switch: State<'_, KillSwitchStateWrapper>,
@@ -143,20 +154,21 @@ pub async fn start_instance(
         _ => None,
     };
 
-    // Phase 1: mark Starting (short lock)
     let (mode, concurrency, log_sink, local_protocol, discovery_token, _stats, proxy_list, _auto_rotate_minutes, bind_addr, port) = {
         let mut mgr = manager.0.lock().await;
         mgr.mark_starting(uuid).map_err(map_err)?
-        // lock is released here
+        
     };
 
     if mode == ProxyMode::Tor {
-        let tor_binary = {
+        let tor_config = {
             let s = settings.0.lock().await;
-            s.tor_binary_path.clone()
+            s.tor_config.clone()
         };
 
-        let tor_path = tor_binary
+        let tor_path = tor_config
+            .binary_path
+            .clone()
             .filter(|p| !p.is_empty())
             .unwrap_or_else(|| "tor".to_string());
 
@@ -194,6 +206,29 @@ pub async fn start_instance(
             return Err(msg);
         }
 
+        let torrc_content = match crate::settings::generate_torrc(
+            &tor_config,
+            &bind_addr,
+            port,
+            &data_dir,
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                let msg = format!("Invalid custom torrc: {}", e);
+                let mut mgr = manager.0.lock().await;
+                mgr.mark_error(uuid, msg.clone());
+                return Err(msg);
+            }
+        };
+        let torrc_path = data_dir.join("torrc");
+        if let Err(e) = std::fs::write(&torrc_path, &torrc_content) {
+            let msg = format!("Failed to write torrc: {}", e);
+            let mut mgr = manager.0.lock().await;
+            mgr.mark_error(uuid, msg.clone());
+            return Err(msg);
+        }
+        push_to_sink(&log_sink, format!("Using torrc: {}", torrc_path.display()));
+
         const MAX_TOR_ATTEMPTS: u32 = 3;
         let mut last_error = String::new();
 
@@ -204,10 +239,8 @@ pub async fn start_instance(
             }
 
             let mut cmd = std::process::Command::new(&tor_path);
-            cmd.arg("--SocksPort")
-                .arg(format!("{}:{}", bind_addr, port))
-                .arg("--DataDirectory")
-                .arg(data_dir.to_string_lossy().to_string())
+            cmd.arg("-f")
+                .arg(torrc_path.to_string_lossy().to_string())
                 .stdout(std::process::Stdio::piped())
                 .stderr(std::process::Stdio::piped());
             #[cfg(windows)]
@@ -274,6 +307,8 @@ pub async fn start_instance(
 
                             let mut mgr = manager.0.lock().await;
                             let info = mgr.finish_start_tor(uuid, child).map_err(map_err)?;
+                            let notif_settings = settings.0.lock().await.notifications.clone();
+                            notify(&app, &notif_settings, "tor", "Tor started", &format!("Tor proxy '{}' is running on port {}", info.name, info.port));
                             return Ok(info);
                         }
                         Err(e) => {
@@ -304,7 +339,6 @@ pub async fn start_instance(
         None
     };
 
-    // Phase 2: resolve upstream (NO lock held — can take minutes)
     let upstream_result: Result<(Proxy, u64), String> = match mode {
         ProxyMode::Manual => manual_upstream
             .ok_or_else(|| "Manual mode requires an upstream proxy".to_string())
@@ -322,7 +356,6 @@ pub async fn start_instance(
         ProxyMode::Tor => unreachable!(),
     };
 
-    // Phase 3: apply result (short lock)
     let mut mgr = manager.0.lock().await;
     match upstream_result {
         Ok((proxy, latency_ms)) => {
@@ -332,6 +365,15 @@ pub async fn start_instance(
                 tracing::info!("Proxy started — deactivating kill-switch");
                 let _ = kill_switch.0.deactivate();
             }
+
+            let notif_settings = settings.0.lock().await.notifications.clone();
+            notify(
+                &app,
+                &notif_settings,
+                "proxy_start",
+                "Proxy started",
+                &format!("'{}' is running on {}:{}", info.name, info.bind_addr, info.port),
+            );
 
             let anon_arc = mgr.get_anonymity_arc(uuid);
             if let Some(arc) = anon_arc {
@@ -358,6 +400,15 @@ pub async fn start_instance(
                 }
             }
 
+            let notif_settings = settings.0.lock().await.notifications.clone();
+            notify(
+                &app,
+                &notif_settings,
+                "proxy_error",
+                "Proxy error",
+                &format!("Failed to start proxy: {}", e),
+            );
+
             Err(e)
         }
     }
@@ -365,7 +416,9 @@ pub async fn start_instance(
 
 #[tauri::command]
 pub async fn stop_instance(
+    app: tauri::AppHandle,
     manager: State<'_, ProxyManagerState>,
+    settings: State<'_, SettingsState>,
     kill_switch: State<'_, KillSwitchStateWrapper>,
     id: String,
 ) -> Result<ProxyInstanceInfo, String> {
@@ -380,6 +433,15 @@ pub async fn stop_instance(
             let _ = kill_switch.0.activate();
         }
     }
+
+    let notif_settings = settings.0.lock().await.notifications.clone();
+    notify(
+        &app,
+        &notif_settings,
+        "proxy_stop",
+        "Proxy stopped",
+        &format!("'{}' has been stopped", info.name),
+    );
 
     Ok(info)
 }
@@ -481,7 +543,6 @@ pub async fn fetch_proxies(
     Ok(tested)
 }
 
-/// Proxy checker with live progress events emitted to the frontend.
 #[tauri::command]
 pub async fn check_proxies_live(
     app: tauri::AppHandle,
@@ -745,7 +806,6 @@ pub async fn update_instance_proxy_list(
     Ok(info)
 }
 
-/// Refresh (fetch + test) proxies from a specific custom proxy list and update cache.
 #[tauri::command]
 pub async fn refresh_proxy_list(
     settings: State<'_, SettingsState>,
@@ -791,7 +851,6 @@ pub async fn toggle_auto_rotate(
     Ok(info)
 }
 
-/// Allowed range for auto-rotate interval (minutes).
 const AUTO_ROTATE_MINUTES_MIN: u64 = 1;
 const AUTO_ROTATE_MINUTES_MAX: u64 = 1440;
 
@@ -833,7 +892,6 @@ pub async fn test_connection(
     Ok(latency.as_millis() as u64)
 }
 
-/// Change the upstream IP to the fastest cached proxy that is not the current one.
 #[tauri::command]
 pub async fn change_ip(
     manager: State<'_, ProxyManagerState>,
@@ -1071,4 +1129,490 @@ pub async fn get_tls_fingerprint_hash(
 ) -> Result<String, String> {
     let s = settings.0.lock().await;
     Ok(tls_fingerprint::compute_fingerprint_hash(&s.tls_fingerprint))
+}
+
+// ── Plugin Manager commands ───────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_plugins(
+    plugin_mgr: State<'_, PluginManagerState>,
+) -> Result<Vec<PluginInfo>, String> {
+    let mgr = plugin_mgr.0.lock().await;
+    Ok(mgr.get_plugins())
+}
+
+#[tauri::command]
+pub async fn install_plugin(
+    plugin_mgr: State<'_, PluginManagerState>,
+    settings: State<'_, SettingsState>,
+    id: String,
+) -> Result<(), String> {
+    {
+        let mut mgr = plugin_mgr.0.lock().await;
+        mgr.install_plugin(&id).map_err(map_err)?;
+    }
+    
+    let mut s = settings.0.lock().await;
+    *s = crate::settings::AppSettings::load().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn uninstall_plugin(
+    plugin_mgr: State<'_, PluginManagerState>,
+    settings: State<'_, SettingsState>,
+    id: String,
+) -> Result<(), String> {
+    {
+        let mut mgr = plugin_mgr.0.lock().await;
+        mgr.uninstall_plugin(&id).map_err(map_err)?;
+    }
+    
+    let mut s = settings.0.lock().await;
+    *s = crate::settings::AppSettings::load().await;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn enable_plugin(
+    plugin_mgr: State<'_, PluginManagerState>,
+    id: String,
+) -> Result<(), String> {
+    let mut mgr = plugin_mgr.0.lock().await;
+    mgr.enable_plugin(&id).map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn disable_plugin(
+    plugin_mgr: State<'_, PluginManagerState>,
+    id: String,
+) -> Result<(), String> {
+    let mut mgr = plugin_mgr.0.lock().await;
+    mgr.disable_plugin(&id).map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn get_plugin_settings_schema(
+    plugin_mgr: State<'_, PluginManagerState>,
+    id: String,
+) -> Result<Option<serde_json::Value>, String> {
+    let mgr = plugin_mgr.0.lock().await;
+    mgr.get_plugin_settings_schema(&id).map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn open_plugins_folder(
+    plugin_mgr: State<'_, PluginManagerState>,
+) -> Result<(), String> {
+    let plugins_dir = {
+        let mgr = plugin_mgr.0.lock().await;
+        mgr.context().plugins_dir.clone()
+    };
+    std::fs::create_dir_all(&plugins_dir).map_err(map_err)?;
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("explorer")
+            .arg(plugins_dir.as_os_str())
+            .spawn()
+            .map_err(map_err)?;
+    }
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(plugins_dir.as_os_str())
+            .spawn()
+            .map_err(map_err)?;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(plugins_dir.as_os_str())
+            .spawn()
+            .map_err(map_err)?;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Serialize)]
+pub struct CountryInfoDto {
+    pub country_code: String,
+    pub country_name: Option<String>,
+}
+
+#[tauri::command]
+pub async fn lookup_country(ip: String) -> Result<Option<CountryInfoDto>, String> {
+    Ok(geoip::lookup_country(&ip).map(|c| CountryInfoDto {
+        country_code: c.country_code,
+        country_name: c.country_name,
+    }))
+}
+
+#[tauri::command]
+pub async fn lookup_host_country(host: String) -> Result<Option<CountryInfoDto>, String> {
+    Ok(geoip::lookup_host_country(&host).await.map(|c| CountryInfoDto {
+        country_code: c.country_code,
+        country_name: c.country_name,
+    }))
+}
+
+#[derive(Clone, Serialize)]
+pub struct SystemProxyInfoDto {
+    pub enabled: bool,
+    pub server: Option<String>,
+}
+
+#[tauri::command]
+pub async fn get_system_proxy_status() -> Result<SystemProxyInfoDto, String> {
+    let status = system_proxy::get_system_proxy_status().map_err(map_err)?;
+    Ok(SystemProxyInfoDto {
+        enabled: status.enabled,
+        server: status.server,
+    })
+}
+
+#[tauri::command]
+pub async fn set_as_system_proxy(
+    manager: State<'_, ProxyManagerState>,
+    id: String,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&id).map_err(map_err)?;
+    let mgr = manager.0.lock().await;
+    let instance = mgr
+        .get_instance(uuid)
+        .ok_or_else(|| format!("Instance {} not found", id))?;
+    system_proxy::set_system_proxy(&instance.bind_addr, instance.port).map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn unset_system_proxy() -> Result<(), String> {
+    system_proxy::unset_system_proxy().map_err(map_err)
+}
+
+// ── Profile commands ──────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_profiles() -> Result<Vec<Profile>, String> {
+    Ok(profiles::list_profiles().await)
+}
+
+#[tauri::command]
+pub async fn save_profile(req: SaveProfileRequest) -> Result<Profile, String> {
+    profiles::upsert_profile(req).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn delete_profile(id: String) -> Result<(), String> {
+    profiles::delete_profile(&id).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn load_profile(
+    settings: State<'_, SettingsState>,
+    kill_switch: State<'_, KillSwitchStateWrapper>,
+    id: String,
+) -> Result<AppSettings, String> {
+    let profile = profiles::get_profile(&id)
+        .await
+        .ok_or_else(|| format!("Profile {} not found", id))?;
+
+    kill_switch.0.set_enabled(profile.settings.kill_switch.enabled);
+    if !profile.settings.kill_switch.enabled && kill_switch.0.is_active() {
+        let _ = kill_switch.0.deactivate();
+    }
+
+    let mut s = settings.0.lock().await;
+    let mut validated = profile.settings.clone();
+    validated.concurrency = validated.concurrency.clamp(1, 1000);
+    *s = validated.clone();
+    s.save().await.map_err(map_err)?;
+    Ok(validated)
+}
+
+// ── Split Tunnel commands ─────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_split_tunnel_rules() -> Result<Vec<RoutingRule>, String> {
+    Ok(split_tunnel::list_rules().await)
+}
+
+#[tauri::command]
+pub async fn save_split_tunnel_rule(req: SaveRoutingRuleRequest) -> Result<RoutingRule, String> {
+    split_tunnel::upsert_rule(req).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn delete_split_tunnel_rule(id: String) -> Result<(), String> {
+    split_tunnel::delete_rule(&id).await.map_err(map_err)
+}
+
+// ── Notification commands ─────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn get_notification_settings(
+    settings: State<'_, SettingsState>,
+) -> Result<NotificationSettings, String> {
+    let s = settings.0.lock().await;
+    Ok(s.notifications.clone())
+}
+
+#[tauri::command]
+pub async fn update_notification_settings(
+    settings: State<'_, SettingsState>,
+    app: tauri::AppHandle,
+    notif: NotificationSettings,
+) -> Result<(), String> {
+    let mut s = settings.0.lock().await;
+    s.notifications = notif;
+    s.save().await.map_err(map_err)?;
+    let _ = app;
+    Ok(())
+}
+
+// ── Scheduler commands ────────────────────────────────────────────────────────
+
+#[tauri::command]
+pub async fn list_schedules() -> Result<Vec<Schedule>, String> {
+    Ok(scheduler::list_schedules().await)
+}
+
+#[tauri::command]
+pub async fn save_schedule(req: SaveScheduleRequest) -> Result<Schedule, String> {
+    scheduler::upsert_schedule(req).await.map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn delete_schedule(id: String) -> Result<(), String> {
+    scheduler::delete_schedule(&id).await.map_err(map_err)
+}
+
+// ── Import / Export commands ──────────────────────────────────────────────────
+
+#[derive(Serialize)]
+pub struct ExportResult {
+    pub path: String,
+}
+
+#[tauri::command]
+pub async fn export_config(
+    manager: State<'_, ProxyManagerState>,
+    settings: State<'_, SettingsState>,
+) -> Result<ExportResult, String> {
+    let current_settings = settings.0.lock().await.clone();
+    let instances = {
+        let mgr = manager.0.lock().await;
+        mgr.get_all_saved()
+    };
+    let profiles = profiles::list_profiles().await;
+    let split_tunnel_rules = split_tunnel::list_rules().await;
+    let schedules = scheduler::list_schedules().await;
+
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    let bundle = import_export::ExportBundle {
+        version: 1,
+        exported_at: now,
+        settings: current_settings,
+        instances,
+        profiles,
+        split_tunnel_rules,
+        schedules,
+    };
+
+    let default_path = import_export::default_export_path();
+    let path_str = default_path.to_string_lossy().to_string();
+    import_export::save_bundle(&path_str, &bundle)
+        .await
+        .map_err(map_err)?;
+
+    Ok(ExportResult { path: path_str })
+}
+
+/// Result returned by [`import_config`].  The import always succeeds if no
+/// parse/IO error occurs, but may carry non-fatal warnings that the frontend
+/// should surface to the user.
+#[derive(Clone, Serialize)]
+pub struct ImportResult {
+    pub warnings: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn import_config(
+    settings: State<'_, SettingsState>,
+    kill_switch: State<'_, KillSwitchStateWrapper>,
+    manager: State<'_, ProxyManagerState>,
+    json: String,
+) -> Result<ImportResult, String> {
+    let bundle = serde_json::from_str::<import_export::ExportBundle>(&json).map_err(map_err)?;
+    let mut warnings: Vec<String> = Vec::new();
+
+    if bundle.settings.kill_switch.enabled {
+        let no_running_proxies = {
+            let mgr = manager.0.lock().await;
+            !mgr.get_all().iter().any(|i| i.status == ProxyStatusInfo::Running)
+        };
+        if no_running_proxies {
+            warnings.push(
+                "This configuration enables the kill-switch. \
+                 If no proxy is running when the kill-switch activates, \
+                 ALL internet traffic will be blocked until a proxy is started \
+                 or the kill-switch is manually deactivated."
+                    .to_string(),
+            );
+        }
+    }
+
+    {
+        let mut s = settings.0.lock().await;
+        let mut validated = bundle.settings;
+        validated.concurrency = validated.concurrency.clamp(1, 1000);
+
+        if let Some(ref path_str) = validated.tor_config.binary_path.clone() {
+            if !path_str.is_empty() {
+                let relay_data_dir = dirs::config_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("relay");
+                let candidate = std::path::Path::new(path_str);
+                let allowed = candidate
+                    .canonicalize()
+                    .ok()
+                    .map(|canon| canon.starts_with(&relay_data_dir))
+                    .unwrap_or(false);
+                if !allowed {
+                    warnings.push(format!(
+                        "The imported configuration contained a custom Tor binary path ('{}') \
+                         that is outside the Relay data directory. \
+                         The path has been cleared for security. \
+                         Use the built-in Tor Downloader plugin to install Tor.",
+                        path_str
+                    ));
+                    validated.tor_config.binary_path = None;
+                }
+            }
+        }
+
+        kill_switch.0.set_enabled(validated.kill_switch.enabled);
+        if !validated.kill_switch.enabled && kill_switch.0.is_active() {
+            let _ = kill_switch.0.deactivate();
+        }
+        *s = validated;
+        s.save().await.map_err(map_err)?;
+    }
+
+    if !bundle.profiles.is_empty() {
+        profiles::save_profiles(&bundle.profiles)
+            .await
+            .map_err(map_err)?;
+    }
+
+    if !bundle.split_tunnel_rules.is_empty() {
+        split_tunnel::save_rules(&bundle.split_tunnel_rules)
+            .await
+            .map_err(map_err)?;
+    }
+
+    if !bundle.schedules.is_empty() {
+        scheduler::save_all(&bundle.schedules)
+            .await
+            .map_err(map_err)?;
+    }
+
+    if !bundle.instances.is_empty() {
+        warnings.push(format!(
+            "The export contained {} proxy instance(s) which were not imported. \
+             Proxy instances must be recreated manually after import.",
+            bundle.instances.len()
+        ));
+    }
+
+    Ok(ImportResult { warnings })
+}
+
+#[tauri::command]
+pub async fn would_stop_trigger_kill_switch(
+    manager: State<'_, ProxyManagerState>,
+    kill_switch: State<'_, KillSwitchStateWrapper>,
+    id: String,
+) -> Result<bool, String> {
+    if !kill_switch.0.is_enabled() {
+        return Ok(false);
+    }
+    let uuid = Uuid::parse_str(&id).map_err(map_err)?;
+    let mgr = manager.0.lock().await;
+    let uuid_str = uuid.to_string();
+    let would_have_running = mgr
+        .get_all()
+        .iter()
+        .any(|i| i.status == ProxyStatusInfo::Running && i.id != uuid_str);
+    Ok(!would_have_running)
+}
+
+#[derive(Clone, Serialize)]
+pub struct ProxyBandwidthDto {
+    pub id: String,
+    pub name: String,
+    pub total_bytes: u64,
+    pub total_requests: u64,
+    pub successful_requests: u64,
+    pub avg_latency_ms: u64,
+    pub success_rate: f64,
+}
+
+#[derive(Clone, Serialize)]
+pub struct BandwidthStatsDto {
+    pub total_bytes: u64,
+    pub total_requests: u64,
+    pub per_proxy: Vec<ProxyBandwidthDto>,
+}
+
+#[tauri::command]
+pub async fn get_bandwidth_stats(
+    manager: State<'_, ProxyManagerState>,
+) -> Result<BandwidthStatsDto, String> {
+    let instances = {
+        let mgr = manager.0.lock().await;
+        mgr.get_all()
+    };
+
+    let mut total_bytes: u64 = 0;
+    let mut total_requests: u64 = 0;
+    let mut per_proxy = Vec::new();
+
+    for inst in &instances {
+        let s = &inst.stats;
+        total_bytes += s.total_bytes;
+        total_requests += s.total_requests;
+        per_proxy.push(ProxyBandwidthDto {
+            id: inst.id.clone(),
+            name: inst.name.clone(),
+            total_bytes: s.total_bytes,
+            total_requests: s.total_requests,
+            successful_requests: s.successful_requests,
+            avg_latency_ms: s.avg_latency_ms,
+            success_rate: s.success_rate,
+        });
+    }
+
+    // Sort by bytes descending
+    per_proxy.sort_by(|a, b| b.total_bytes.cmp(&a.total_bytes));
+
+    Ok(BandwidthStatsDto {
+        total_bytes,
+        total_requests,
+        per_proxy,
+    })
+}
+
+// ── Notification send helpers (called from other modules) ─────────────────────
+
+pub fn notify(
+    app: &tauri::AppHandle,
+    settings: &NotificationSettings,
+    key: &str,
+    title: &str,
+    body: &str,
+) {
+    notifications::send(app, settings, key, title, body);
 }

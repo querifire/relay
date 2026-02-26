@@ -29,7 +29,6 @@ export default function DashboardPage() {
   const [trafficData, setTrafficData] = useState<number[]>(new Array(12).fill(0));
   const prevRequestCountRef = useRef<number | null>(null);
 
-  // ── Derive trafficData from instance stats (polled every 3s by ProxyContext) ──
   useEffect(() => {
     const runningInstances = instances.filter((i) => i.status === "Running");
     if (runningInstances.length === 0) {
@@ -43,7 +42,6 @@ export default function DashboardPage() {
       totalRequests += inst.stats?.total_requests ?? 0;
     }
 
-    // First poll — just store the baseline, don't push a bar yet.
     if (prevRequestCountRef.current === null) {
       prevRequestCountRef.current = totalRequests;
       return;
@@ -55,7 +53,6 @@ export default function DashboardPage() {
     setTrafficData((prev) => [...prev.slice(1), delta]);
   }, [instances]);
 
-  // ── Filter instances ──────────────────────────────────────────────────
   const filteredInstances = instances.filter((inst) => {
     if (filterStatus === "all") return true;
     if (filterStatus === "running") return inst.status === "Running" || inst.status === "Starting";
@@ -66,7 +63,7 @@ export default function DashboardPage() {
 
   return (
     <div>
-      {/* ── Header ──────────────────────────────────────────────── */}
+      {}
       <header className="mb-10">
         <div className="flex gap-2 text-foreground-muted text-[0.8125rem] mb-3 items-center">
           <Link to="/" className="hover:text-foreground transition-colors">Home</Link>
@@ -86,17 +83,17 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      {/* ── Content ─────────────────────────────────────────────── */}
+      {}
       {loading ? (
         <div className="flex items-center justify-center py-20">
           <p className="text-[0.875rem] text-foreground-muted">Loading...</p>
         </div>
       ) : (
         <div className="grid grid-cols-12 gap-4 md:gap-6">
-          {/* Overview card */}
+          {}
           <OverviewCard instances={instances} trafficData={trafficData} />
 
-          {/* Section header */}
+          {}
           <div className="col-span-12 flex justify-between items-end mt-5 mb-2 pb-3 border-b border-border">
             <h2 className="text-[1.125rem] font-semibold tracking-[-0.01em]">
               Active Proxies
@@ -129,7 +126,7 @@ export default function DashboardPage() {
             </div>
           </div>
 
-          {/* Proxy cards or empty state */}
+          {}
           {filteredInstances.length === 0 ? (
             <div className="col-span-12 flex flex-col items-center justify-center py-20 text-center">
               <div className="w-12 h-12 mb-4 rounded-card bg-surface-hover border border-border flex items-center justify-center">

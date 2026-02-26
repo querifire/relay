@@ -6,10 +6,6 @@ import { fetchProxyLists } from "../hooks/useProxyLists";
 import type { ProxyMode, ProxyProtocol, ProxyListConfig, Proxy } from "../types";
 import CustomSelect from "../components/CustomSelect";
 
-// ---------------------------------------------------------------------------
-// Options
-// ---------------------------------------------------------------------------
-
 const MODE_OPTIONS: { value: ProxyMode; label: string; desc: string }[] = [
   {
     value: "Auto",
@@ -41,18 +37,11 @@ const UPSTREAM_PROTOCOL_OPTIONS = [
   { value: "Socks5", label: "SOCKS5" },
 ];
 
-// Proxy list options are built dynamically from stored sources (see below)
-
-// ---------------------------------------------------------------------------
-// Component
-// ---------------------------------------------------------------------------
-
 export default function CreateProxyPage() {
   const navigate = useNavigate();
   const { instances, createInstance, startInstance } = useProxies();
   const { settings } = useSettings();
 
-  // ── Basic configuration ────────────────────────────────────────────
   const [name, setName] = useState("");
   const [bindAddr, setBindAddr] = useState(
     settings?.default_bind ?? "127.0.0.1",
@@ -61,7 +50,6 @@ export default function CreateProxyPage() {
   const [mode, setMode] = useState<ProxyMode>("Auto");
   const [localProtocol, setLocalProtocol] = useState<ProxyProtocol>("Socks5");
 
-  // ── Network & Security ─────────────────────────────────────────────
   const [upstreamHost, setUpstreamHost] = useState("");
   const [upstreamPort, setUpstreamPort] = useState(8080);
   const [upstreamProtocol, setUpstreamProtocol] = useState("Socks5");
@@ -69,7 +57,6 @@ export default function CreateProxyPage() {
   const [authUsername, setAuthUsername] = useState("");
   const [authPassword, setAuthPassword] = useState("");
 
-  // ── Proxy lists: built-in "Default" + any user-added custom sources ──
   const [customLists, setCustomLists] = useState<ProxyListConfig[]>([]);
   useEffect(() => {
     fetchProxyLists().then(setCustomLists);
@@ -83,19 +70,16 @@ export default function CreateProxyPage() {
     return options;
   }, [customLists]);
 
-  // ── Advanced options ───────────────────────────────────────────────
   const [autoRotate, setAutoRotate] = useState(false);
   const [autoRotateMinutes, setAutoRotateMinutes] = useState(5);
   const [proxyList, setProxyList] = useState("default");
 
-  // ── Proxy Chain ───────────────────────────────────────────────────
   const [chainEnabled, setChainEnabled] = useState(false);
   const [chainProxies, setChainProxies] = useState<Proxy[]>([]);
   const [chainHost, setChainHost] = useState("");
   const [chainPort, setChainPort] = useState(1080);
   const [chainProtocol, setChainProtocol] = useState<ProxyProtocol>("Socks5");
 
-  // ── Form state ─────────────────────────────────────────────────────
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -130,8 +114,6 @@ export default function CreateProxyPage() {
         proxyChain,
       );
 
-      // For Manual mode with upstream, find the new instance and start it.
-      // Use a short delay so the backend has registered the new instance.
       if (mode === "Manual" && upstreamHost.trim()) {
         setTimeout(() => {
           const newest = [...instances].reverse().find(
@@ -157,7 +139,7 @@ export default function CreateProxyPage() {
 
   return (
     <div className="max-w-4xl">
-      {/* ── Header ──────────────────────────────────────────────── */}
+      {}
       <header className="mb-10">
         <div className="flex gap-2 text-foreground-muted text-[0.8125rem] mb-3 items-center">
           <button
@@ -178,9 +160,7 @@ export default function CreateProxyPage() {
       </header>
 
       <form onSubmit={handleSubmit} className="space-y-8">
-        {/* ═══════════════════════════════════════════════════════════
-            Section 1: Basic Configuration
-            ═══════════════════════════════════════════════════════════ */}
+        {}
         <section>
           <h2 className="text-[0.9375rem] font-semibold tracking-[-0.01em] mb-1">
             Basic Configuration
@@ -190,7 +170,7 @@ export default function CreateProxyPage() {
           </p>
 
           <div className="space-y-5">
-            {/* Name */}
+            {}
             <div>
               <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
                 Name
@@ -204,7 +184,7 @@ export default function CreateProxyPage() {
               />
             </div>
 
-            {/* Bind Address + Port */}
+            {}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
@@ -241,7 +221,7 @@ export default function CreateProxyPage() {
               </div>
             </div>
 
-            {/* Mode */}
+            {}
             <div>
               <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
                 Mode
@@ -269,7 +249,7 @@ export default function CreateProxyPage() {
               </div>
             </div>
 
-            {/* Protocol Type (not for Tor — always SOCKS5) */}
+            {}
             {mode !== "Tor" && (
               <div>
                 <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
@@ -291,12 +271,10 @@ export default function CreateProxyPage() {
           </div>
         </section>
 
-        {/* Divider */}
+        {}
         <div className="border-t border-border" />
 
-        {/* ═══════════════════════════════════════════════════════════
-            Section 2: Network & Security
-            ═══════════════════════════════════════════════════════════ */}
+        {}
         <section>
           <h2 className="text-[0.9375rem] font-semibold tracking-[-0.01em] mb-1">
             Network & Security
@@ -310,7 +288,7 @@ export default function CreateProxyPage() {
           </p>
 
           <div className="space-y-5">
-            {/* Upstream fields (Manual only) */}
+            {}
             {mode === "Manual" && (
               <div className="p-4 bg-surface-hover/50 rounded-card border border-border space-y-4">
                 <div className="text-[0.75rem] font-semibold text-foreground-muted uppercase tracking-[0.04em]">
@@ -361,7 +339,7 @@ export default function CreateProxyPage() {
               </div>
             )}
 
-            {/* Tor info (Tor mode only) */}
+            {}
             {mode === "Tor" && (
               <div className="p-4 bg-surface-hover/50 rounded-card border border-border space-y-3">
                 <div className="text-[0.75rem] font-semibold text-foreground-muted uppercase tracking-[0.04em]">
@@ -381,7 +359,7 @@ export default function CreateProxyPage() {
               </div>
             )}
 
-            {/* Authentication (not for Tor — Tor doesn't support auth on its SOCKS port) */}
+            {}
             {mode !== "Tor" && <div>
               <div className="text-[0.75rem] font-semibold text-foreground-muted uppercase tracking-[0.04em] mb-3">
                 Authentication (optional)
@@ -419,12 +397,10 @@ export default function CreateProxyPage() {
           </div>
         </section>
 
-        {/* Divider */}
+        {}
         {mode !== "Tor" && <div className="border-t border-border" />}
 
-        {/* ═══════════════════════════════════════════════════════════
-            Section 3: Advanced Options (not for Tor)
-            ═══════════════════════════════════════════════════════════ */}
+        {}
         {mode !== "Tor" && <section>
           <h2 className="text-[0.9375rem] font-semibold tracking-[-0.01em] mb-1">
             Advanced Options
@@ -434,7 +410,7 @@ export default function CreateProxyPage() {
           </p>
 
           <div className="space-y-5">
-            {/* Auto-rotation (Auto mode only) */}
+            {}
             {mode === "Auto" && (
               <div className="p-4 bg-surface-hover/50 rounded-card border border-border space-y-3">
                 <div className="flex items-center justify-between">
@@ -482,7 +458,7 @@ export default function CreateProxyPage() {
               </div>
             )}
 
-            {/* Proxy List */}
+            {}
             <div>
               <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
                 Proxy List
@@ -500,7 +476,7 @@ export default function CreateProxyPage() {
               </div>
             </div>
 
-            {/* Proxy Chain */}
+            {}
             <div className="p-4 bg-surface-hover/50 rounded-card border border-border space-y-3">
               <div className="flex items-center justify-between">
                 <div>
@@ -540,7 +516,7 @@ export default function CreateProxyPage() {
                             {idx + 1}
                           </span>
                           <span className="font-mono text-[0.75rem] bg-surface px-1.5 py-0.5 rounded border border-border">
-                            {p.protocol}://{p.host}:{p.port}
+                            {p.protocol}:
                           </span>
                           {idx < chainProxies.length - 1 && <span className="text-foreground-tertiary">→</span>}
                           <button
@@ -609,14 +585,14 @@ export default function CreateProxyPage() {
           </div>
         </section>}
 
-        {/* ── Error ─────────────────────────────────────────────── */}
+        {}
         {error && (
           <div className="text-[0.75rem] text-[#FF3B30] bg-[rgba(255,59,48,0.1)] px-4 py-3 rounded-button">
             {error}
           </div>
         )}
 
-        {/* ── Footer ────────────────────────────────────────────── */}
+        {}
         <div className="flex justify-end gap-3 pt-4 border-t border-border">
           <button
             type="button"

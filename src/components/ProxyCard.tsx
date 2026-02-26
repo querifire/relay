@@ -13,7 +13,7 @@ interface Props {
   onStart: (id: string) => void;
   onStop: (id: string) => void;
   onDelete: (id: string) => void;
-  /** Index for staggered fade-in animation (optional). */
+  
   index?: number;
 }
 
@@ -25,7 +25,6 @@ const protocolDisplayMap: Record<string, string> = {
   Tor: "TOR",
 };
 
-/** Derive protocol label from upstream or local_protocol. */
 function getProtocol(inst: ProxyInstanceInfo): string {
   if (inst.mode === "Tor") return "TOR";
   if (inst.upstream) {
@@ -34,7 +33,6 @@ function getProtocol(inst: ProxyInstanceInfo): string {
   return protocolDisplayMap[inst.local_protocol] ?? inst.local_protocol;
 }
 
-/** Get the mode display label. */
 function getModeLabel(inst: ProxyInstanceInfo): string {
   if (inst.mode === "Auto") return "Auto Rotate";
   if (inst.mode === "Manual") return "Manual";
@@ -42,15 +40,13 @@ function getModeLabel(inst: ProxyInstanceInfo): string {
   return inst.mode;
 }
 
-/** Get latency dot color based on status. */
 function getLatencyDotColor(inst: ProxyInstanceInfo): string {
   if (inst.status === "Running") return "#34C759";
   if (inst.status === "Starting") return "#FF9F0A";
   if (inst.status === "Stopped") return "#8E8E93";
-  return "#FF3B30"; // Error
+  return "#FF3B30"; 
 }
 
-/** Get latency display text. */
 function getLatencyText(inst: ProxyInstanceInfo): string {
   if (inst.status === "Running") return "Connected";
   if (inst.status === "Starting") return "Connecting...";
@@ -58,7 +54,6 @@ function getLatencyText(inst: ProxyInstanceInfo): string {
   return "Error";
 }
 
-/** Compute card opacity based on status. */
 function getCardOpacity(inst: ProxyInstanceInfo): string {
   if (typeof inst.status === "object" && "Error" in inst.status) return "opacity-60";
   if (inst.status === "Stopped") return "";
@@ -139,7 +134,7 @@ function ProxyCard({
       onClick={() => navigate(`/proxy/${instance.id}`)}
       className={`col-span-12 md:col-span-6 xl:col-span-4 bg-surface-card border border-border rounded-card p-5 transition-all duration-200 cursor-pointer relative hover:border-border-focus hover:-translate-y-0.5 hover:shadow-float ${opacityClass}`}
     >
-      {/* Header: initials + name + actions + status */}
+      {}
       <div className="flex justify-between items-center mb-4">
         <div className="flex items-center gap-2 font-medium text-[0.875rem] min-w-0">
           <div className="w-5 h-5 bg-surface-hover rounded-full grid place-items-center text-[0.625rem] font-semibold text-foreground-muted shrink-0">
@@ -183,7 +178,7 @@ function ProxyCard({
         </div>
       </div>
 
-      {/* Details */}
+      {}
       <div className="flex flex-col gap-2">
         <div className="flex justify-between text-[0.8125rem]">
           <span className="text-foreground-muted">IP Address</span>
@@ -205,7 +200,7 @@ function ProxyCard({
         </div>
       </div>
 
-      {/* Footer */}
+      {}
       <div className="mt-4 pt-4 border-t border-border flex justify-between items-center text-[0.75rem] text-foreground-muted">
         <div>{modeLabel}</div>
         <div className="flex items-center">

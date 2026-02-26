@@ -16,13 +16,13 @@ export interface ManageProxiesRowPlaceholder {
   latencyVariant?: LatencyVariant;
   autoStartOnBoot: boolean;
   opacity?: number;
-  /** When set, card is clickable and navigates to /proxy/:id */
+  
   id?: string;
 }
 
 interface Props {
   item: ManageProxiesRowPlaceholder;
-  /** Index for staggered fade-in animation (optional). */
+  
   index?: number;
 }
 
@@ -109,7 +109,7 @@ function ManageProxiesRowCard({ item, index = 0 }: Props) {
         await invoke("toggle_auto_start_on_boot", { id: item.id, enabled: newValue });
       } catch (err) {
         console.error("Failed to toggle auto-start:", err);
-        // Revert on error
+        
         setAutoStart(!newValue);
       }
     }

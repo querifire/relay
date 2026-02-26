@@ -4,22 +4,56 @@ use crate::proxy_type::{Proxy, ProxyProtocol};
 use crate::upstream;
 use anyhow::{anyhow, Result};
 use base64::Engine;
+use hmac::{Hmac, Mac};
 use parking_lot::RwLock;
-use subtle::ConstantTimeEq;
+use sha2::Sha256;
 use std::collections::HashMap;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
-/// Maximum number of concurrent connections per local proxy server.
+type HmacSha256 = Hmac<Sha256>;
+
+static AUTH_HMAC_KEY: OnceLock<[u8; 32]> = OnceLock::new();
+
+fn auth_hmac_key() -> &'static [u8; 32] {
+    AUTH_HMAC_KEY.get_or_init(|| {
+        use rand::RngCore;
+        let mut key = [0u8; 32];
+        rand::rng().fill_bytes(&mut key);
+        key
+    })
+}
+
+/// Constant-time string equality that is safe against timing side-channels
+/// regardless of string length differences.
+///
+/// Both strings are HMAC-SHA256'd with the same per-session random key; the
+
+fn ct_str_eq(a: &str, b: &str) -> bool {
+    let key = auth_hmac_key();
+
+    let mut mac_a = HmacSha256::new_from_slice(key).expect("HMAC accepts any key size");
+    mac_a.update(a.as_bytes());
+    let digest_a = mac_a.finalize().into_bytes();
+
+    let mut mac_b = HmacSha256::new_from_slice(key).expect("HMAC accepts any key size");
+    mac_b.update(b.as_bytes());
+    let digest_b = mac_b.finalize().into_bytes();
+
+    digest_a.ct_eq(&digest_b).into()
+}
+
+const SOCKS_HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(30);
+
 const MAX_CONCURRENT_CONNECTIONS: usize = 500;
 
-/// Rate limiter for auth failures: delay after each failure, temporary block after many failures.
 #[derive(Default)]
 pub struct AuthRateLimiter(parking_lot::Mutex<HashMap<String, (u32, Instant)>>);
 
@@ -30,11 +64,11 @@ const AUTH_FAIL_BLOCK_FOR: Duration = Duration::from_secs(60);
 const AUTH_FAIL_CLEANUP_AGE: Duration = Duration::from_secs(3600);
 
 impl AuthRateLimiter {
-    /// Call after a failed auth attempt. Returns how long to delay before closing the connection.
+    
     pub fn delay_after_failure(&self, ip: &str) -> Duration {
         let now = Instant::now();
         let mut guard = self.0.lock();
-        // Remove stale entries.
+        
         guard.retain(|_, (_, first)| now.duration_since(*first) < AUTH_FAIL_CLEANUP_AGE);
         let (count, first) = guard
             .entry(ip.to_string())
@@ -48,14 +82,10 @@ impl AuthRateLimiter {
     }
 }
 
-/// Authentication credentials for the local proxy server.
 pub type AuthCredentials = Option<(String, String)>;
 
-/// Optional pre-hop proxy chain (shared, immutable after creation).
 pub type ChainProxies = Option<Arc<Vec<Proxy>>>;
 
-/// Connect to the target through the upstream proxy, optionally routing
-/// through a chain of intermediate proxies first.
 async fn connect_upstream(
     upstream: &Proxy,
     chain: &ChainProxies,
@@ -92,6 +122,18 @@ pub fn start_local_server(
             })
         }
         ProxyProtocol::Socks4 => {
+            
+            if auth.is_some() {
+                push_to_sink(
+                    &log_sink,
+                    "WARNING: SOCKS4 does not support authentication — credentials are ignored. \
+                     Switch to SOCKS5 or HTTP to enforce a password.",
+                );
+                tracing::warn!(
+                    "SOCKS4 proxy started with auth credentials configured — \
+                     credentials will be silently ignored."
+                );
+            }
             tokio::spawn(async move {
                 run_socks4_server(bind_addr, upstream_proxy, cancel_token, log_sink, stats, chain, conn_limit).await
             })
@@ -173,7 +215,7 @@ async fn handle_http_client(
     chain: ChainProxies,
     rate_limiter: Arc<AuthRateLimiter>,
 ) -> Result<()> {
-    // Timeout to prevent Slowloris-style attacks.
+    
     const HEADER_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
     let mut buf = Vec::new();
     let mut tmp = [0u8; 1];
@@ -199,7 +241,6 @@ async fn handle_http_client(
     let request_str = String::from_utf8_lossy(&buf).to_string();
     let first_line = request_str.lines().next().unwrap_or("").to_string();
 
-    // Constant-time comparison to prevent timing attacks.
     if let Some((expected_user, expected_pass)) = &auth {
         let authenticated = request_str
             .lines()
@@ -215,9 +256,8 @@ async fn handle_http_client(
                     let mut parts = cred.splitn(2, ':');
                     let user = parts.next()?;
                     let pass = parts.next().unwrap_or("");
-                    let ok = user.as_bytes().ct_eq(expected_user.as_bytes())
-                        & pass.as_bytes().ct_eq(expected_pass.as_bytes());
-                    Some(ok.into())
+                    let ok = ct_str_eq(user, expected_user) & ct_str_eq(pass, expected_pass);
+                    Some(ok)
                 } else {
                     None
                 }
@@ -448,14 +488,10 @@ async fn run_socks4_server(
     Ok(())
 }
 
-async fn handle_socks4_client(
-    mut client_stream: TcpStream,
-    upstream_proxy: Arc<RwLock<Proxy>>,
-    log_sink: LogSink,
-    stats: Arc<ProxyStats>,
-    chain: ChainProxies,
-) -> Result<()> {
-    // SOCKS4 packet: VN(1)|CD(1)|DSTPORT(2)|DSTIP(4)|USERID(null-term)
+async fn socks4_handshake(
+    client_stream: &mut TcpStream,
+) -> Result<(String, u16, [u8; 8])> {
+    
     let mut header = [0u8; 8];
     client_stream.read_exact(&mut header).await?;
 
@@ -466,7 +502,7 @@ async fn handle_socks4_client(
 
     let cmd = header[1];
     if cmd != 0x01 {
-        let reply = [0x00, 0x5B, 0, 0, 0, 0, 0, 0];
+        let reply = [0x00u8, 0x5B, 0, 0, 0, 0, 0, 0];
         client_stream.write_all(&reply).await?;
         return Err(anyhow!("SOCKS4: поддерживается только CONNECT (cmd={})", cmd));
     }
@@ -483,14 +519,13 @@ async fn handle_socks4_client(
             break;
         }
         if _userid.len() >= MAX_USERID_LEN {
-            let reply = [0x00, 0x5B, 0, 0, 0, 0, 0, 0];
+            let reply = [0x00u8, 0x5B, 0, 0, 0, 0, 0, 0];
             client_stream.write_all(&reply).await?;
             return Err(anyhow!("SOCKS4 USERID too long"));
         }
         _userid.push(b[0]);
     }
 
-    // SOCKS4a: DSTIP 0.0.0.x (x!=0) means domain name follows.
     const MAX_DOMAIN_LEN: usize = 255;
     let target_host = if dst_ip[0] == 0 && dst_ip[1] == 0 && dst_ip[2] == 0 && dst_ip[3] != 0 {
         let mut domain = Vec::new();
@@ -501,7 +536,7 @@ async fn handle_socks4_client(
                 break;
             }
             if domain.len() >= MAX_DOMAIN_LEN {
-                let reply = [0x00, 0x5B, 0, 0, 0, 0, 0, 0];
+                let reply = [0x00u8, 0x5B, 0, 0, 0, 0, 0, 0];
                 client_stream.write_all(&reply).await?;
                 return Err(anyhow!("SOCKS4a domain too long"));
             }
@@ -511,6 +546,23 @@ async fn handle_socks4_client(
     } else {
         format!("{}.{}.{}.{}", dst_ip[0], dst_ip[1], dst_ip[2], dst_ip[3])
     };
+
+    Ok((target_host, target_port, header))
+}
+
+async fn handle_socks4_client(
+    mut client_stream: TcpStream,
+    upstream_proxy: Arc<RwLock<Proxy>>,
+    log_sink: LogSink,
+    stats: Arc<ProxyStats>,
+    chain: ChainProxies,
+) -> Result<()> {
+    let (target_host, target_port, header) =
+        tokio::time::timeout(SOCKS_HANDSHAKE_TIMEOUT, socks4_handshake(&mut client_stream))
+            .await
+            .map_err(|_| anyhow!("SOCKS4 handshake timeout"))??;
+
+    let dst_ip = [header[4], header[5], header[6], header[7]];
 
     {
         let msg = format!("CONNECT {}:{}", target_host, target_port);
@@ -618,16 +670,12 @@ async fn run_socks5_server(
     Ok(())
 }
 
-async fn handle_socks5_client(
-    mut client_stream: TcpStream,
-    upstream_proxy: Arc<RwLock<Proxy>>,
-    log_sink: LogSink,
-    auth: AuthCredentials,
-    stats: Arc<ProxyStats>,
-    chain: ChainProxies,
-    rate_limiter: Arc<AuthRateLimiter>,
-) -> Result<()> {
-    let client_addr = client_stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
+async fn socks5_handshake(
+    client_stream: &mut TcpStream,
+    auth: &AuthCredentials,
+    rate_limiter: &AuthRateLimiter,
+    client_addr: &str,
+) -> Result<(String, u16)> {
     let mut header = [0u8; 2];
     client_stream.read_exact(&mut header).await?;
 
@@ -645,7 +693,7 @@ async fn handle_socks5_client(
             return Err(anyhow!("Клиент не поддерживает аутентификацию"));
         }
         client_stream.write_all(&[0x05, 0x02]).await?;
-        // SOCKS5 auth sub-negotiation: VER(1)|ULEN(1)|UNAME|PLEN(1)|PASSWD
+        
         let mut auth_ver = [0u8; 1];
         client_stream.read_exact(&mut auth_ver).await?;
         if auth_ver[0] != 0x01 {
@@ -666,10 +714,9 @@ async fn handle_socks5_client(
         let password = String::from_utf8_lossy(&passwd).to_string();
 
         let (expected_user, expected_pass) = auth.as_ref().unwrap();
-        let ok = username.as_bytes().ct_eq(expected_user.as_bytes())
-            & password.as_bytes().ct_eq(expected_pass.as_bytes());
-        if !bool::from(ok) {
-            let delay = rate_limiter.delay_after_failure(&client_addr);
+        let ok = ct_str_eq(&username, expected_user) & ct_str_eq(&password, expected_pass);
+        if !ok {
+            let delay = rate_limiter.delay_after_failure(client_addr);
             tokio::time::sleep(delay).await;
             client_stream.write_all(&[0x01, 0x01]).await?;
             return Err(anyhow!("SOCKS5 аутентификация не пройдена"));
@@ -742,6 +789,27 @@ async fn handle_socks5_client(
             return Err(anyhow!("Неподдерживаемый тип адреса"));
         }
     };
+
+    Ok((target_host, target_port))
+}
+
+async fn handle_socks5_client(
+    mut client_stream: TcpStream,
+    upstream_proxy: Arc<RwLock<Proxy>>,
+    log_sink: LogSink,
+    auth: AuthCredentials,
+    stats: Arc<ProxyStats>,
+    chain: ChainProxies,
+    rate_limiter: Arc<AuthRateLimiter>,
+) -> Result<()> {
+    let client_addr = client_stream.peer_addr().map(|a| a.to_string()).unwrap_or_else(|_| "?".into());
+
+    let (target_host, target_port) = tokio::time::timeout(
+        SOCKS_HANDSHAKE_TIMEOUT,
+        socks5_handshake(&mut client_stream, &auth, &rate_limiter, &client_addr),
+    )
+    .await
+    .map_err(|_| anyhow!("SOCKS5 handshake timeout"))??;
 
     {
         let msg = format!("CONNECT {}:{}", target_host, target_port);

@@ -15,7 +15,7 @@ pub async fn connect_through_proxy(
         ProxyProtocol::Socks4 => connect_through_socks4(proxy, target_host, target_port).await,
         ProxyProtocol::Socks5 => connect_through_socks5(proxy, target_host, target_port).await,
         ProxyProtocol::Tor => {
-            // Tor support is not yet implemented — treat as SOCKS5 for now
+            
             Err(anyhow!("Tor protocol is not yet implemented"))
         }
     }

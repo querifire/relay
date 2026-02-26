@@ -47,12 +47,10 @@ export default function AddProxyDialog({ onClose }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Upstream fields (Manual mode)
   const [upstreamHost, setUpstreamHost] = useState("");
   const [upstreamPort, setUpstreamPort] = useState(8080);
   const [upstreamProtocol, setUpstreamProtocol] = useState("Http");
 
-  // Country
   const [country, setCountry] = useState("");
 
   const portConflict = instances.find(
@@ -65,7 +63,7 @@ export default function AddProxyDialog({ onClose }: Props) {
     setError(null);
     setBusy(true);
     try {
-      // Build name: prepend country code if selected
+      
       const countryFlag = country
         ? COUNTRY_OPTIONS.find((c) => c.value === country)
         : null;
@@ -75,14 +73,12 @@ export default function AddProxyDialog({ onClose }: Props) {
 
       await createInstance(displayName, bindAddr, port, mode);
 
-      // For Manual mode with upstream, immediately start with upstream params
       if (mode === "Manual" && upstreamHost.trim()) {
-        // Need the newly created instance ID — find by matching port/bindAddr
-        // The context will refresh; startInstance accepts upstream params
+        
         const allInstances = instances;
-        // Use a small delay so the backend has the new instance
+        
         setTimeout(() => {
-          // Find the instance that was just created
+          
           const newest = allInstances.find(
             (i) => i.port === port && i.bind_addr === bindAddr,
           );
@@ -106,12 +102,12 @@ export default function AddProxyDialog({ onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
-      {/* Backdrop */}
+      {}
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
 
-      {/* Dialog */}
+      {}
       <div className="relative w-full max-w-md mx-4 bg-surface-card border border-border rounded-card p-6 shadow-float">
-        {/* Title row */}
+        {}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-[1rem] font-semibold tracking-[-0.01em]">
             New Proxy Instance
@@ -137,7 +133,7 @@ export default function AddProxyDialog({ onClose }: Props) {
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-5">
-          {/* Name */}
+          {}
           <div>
             <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
               Name
@@ -151,7 +147,7 @@ export default function AddProxyDialog({ onClose }: Props) {
             />
           </div>
 
-          {/* Bind Address */}
+          {}
           <div>
             <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
               Bind Address
@@ -164,7 +160,7 @@ export default function AddProxyDialog({ onClose }: Props) {
             />
           </div>
 
-          {/* Port */}
+          {}
           <div>
             <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
               Port
@@ -188,7 +184,7 @@ export default function AddProxyDialog({ onClose }: Props) {
             )}
           </div>
 
-          {/* Mode — card selector */}
+          {}
           <div>
             <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
               Mode
@@ -216,14 +212,14 @@ export default function AddProxyDialog({ onClose }: Props) {
             </div>
           </div>
 
-          {/* Upstream fields (Manual mode only) */}
+          {}
           {mode === "Manual" && (
             <div className="space-y-4 p-4 bg-surface rounded-button border border-border">
               <div className="text-[0.75rem] font-medium text-foreground-muted mb-1">
                 Upstream Proxy
               </div>
 
-              {/* Upstream Host */}
+              {}
               <div>
                 <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
                   Host
@@ -237,7 +233,7 @@ export default function AddProxyDialog({ onClose }: Props) {
                 />
               </div>
 
-              {/* Upstream Port */}
+              {}
               <div>
                 <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
                   Port
@@ -252,7 +248,7 @@ export default function AddProxyDialog({ onClose }: Props) {
                 />
               </div>
 
-              {/* Upstream Protocol */}
+              {}
               <div>
                 <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
                   Protocol
@@ -267,7 +263,7 @@ export default function AddProxyDialog({ onClose }: Props) {
             </div>
           )}
 
-          {/* Country */}
+          {}
           <div>
             <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
               Country
@@ -280,14 +276,14 @@ export default function AddProxyDialog({ onClose }: Props) {
             />
           </div>
 
-          {/* Error */}
+          {}
           {error && (
             <p className="text-[0.75rem] text-[#FF3B30] bg-[rgba(255,59,48,0.1)] px-4 py-3 rounded-button">
               {error}
             </p>
           )}
 
-          {/* Buttons */}
+          {}
           <div className="flex justify-end gap-3 pt-2">
             <button
               type="button"

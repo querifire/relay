@@ -4,6 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import CustomSelect from "../components/CustomSelect";
 
+interface CountryInfo {
+  country_code: string;
+  country_name: string | null;
+}
+
 interface ProxyWithSpeed {
   proxy: { host: string; port: number; protocol: string };
   latency: number;
@@ -42,6 +47,9 @@ export default function ProxyCheckerPage() {
 
   const [checking, setChecking] = useState(false);
   const [results, setResults] = useState("");
+  const [rawResults, setRawResults] = useState<ProxyWithSpeed[]>([]);
+  const [countryFilter, setCountryFilter] = useState("");
+  const [filteringCountry, setFilteringCountry] = useState(false);
   const [workingCount, setWorkingCount] = useState(0);
   const [failedCount, setFailedCount] = useState(0);
   const [totalCount, setTotalCount] = useState(0);
@@ -61,7 +69,6 @@ export default function ProxyCheckerPage() {
     }
   }, [logs]);
 
-  // Clean up event listeners on unmount
   useEffect(() => {
     return () => {
       for (const unlisten of unlistenRefs.current) unlisten();
@@ -117,7 +124,6 @@ export default function ProxyCheckerPage() {
 
     pushLog(`Starting proxy check — list: ${listLabel}`);
 
-    // Subscribe to backend events
     for (const unlisten of unlistenRefs.current) unlisten();
     unlistenRefs.current = [];
 
@@ -158,6 +164,7 @@ export default function ProxyCheckerPage() {
         protocol,
       });
 
+      setRawResults(tested);
       const lines = tested.map((p) => `${p.proxy.host}:${p.proxy.port}`);
       setResults(lines.join("\n"));
       setWorkingCount(tested.length);
@@ -170,7 +177,7 @@ export default function ProxyCheckerPage() {
           : (err as Error)?.message ?? "Unknown error";
       pushLog(`Error: ${msg}`, "error");
     } finally {
-      // Unsubscribe from events
+      
       for (const unlisten of unlistenRefs.current) unlisten();
       unlistenRefs.current = [];
       setChecking(false);
@@ -217,7 +224,7 @@ export default function ProxyCheckerPage() {
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header */}
+      {}
       <header className="mb-8 shrink-0">
         <div className="flex gap-2 text-foreground-muted text-[0.8125rem] mb-3 items-center">
           <span>Home</span>
@@ -231,11 +238,11 @@ export default function ProxyCheckerPage() {
         </h1>
       </header>
 
-      {/* Checker layout */}
+      {}
       <div className="grid grid-cols-[23.75rem_1fr] gap-6 flex-1 min-h-0">
-        {/* Config panel */}
+        {}
         <aside className="flex flex-col gap-6 overflow-y-auto">
-          {/* Source Selection */}
+          {}
           <div className="bg-surface-card border border-border rounded-card p-6 shadow-card">
             <div className="text-[0.875rem] font-semibold mb-4 flex items-center gap-2">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -271,7 +278,7 @@ export default function ProxyCheckerPage() {
             </div>
           </div>
 
-          {/* Check Settings */}
+          {}
           <div className="bg-surface-card border border-border rounded-card p-6 shadow-card">
             <div className="text-[0.875rem] font-semibold mb-4 flex items-center gap-2">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -325,6 +332,58 @@ export default function ProxyCheckerPage() {
               />
             </div>
 
+            <div className="mb-5">
+              <label className="block text-[0.75rem] font-medium text-foreground-muted mb-2">
+                Country Filter (GeoIP)
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={countryFilter}
+                  onChange={(e) => setCountryFilter(e.target.value)}
+                  placeholder="US,DE,NL"
+                  className="flex-1 h-9 px-3 rounded-button border border-border bg-surface-hover text-[0.8125rem] font-mono outline-none focus:border-border-focus transition-colors placeholder:text-foreground-muted/50"
+                />
+                <button
+                  onClick={async () => {
+                    if (!countryFilter.trim() || rawResults.length === 0 || filteringCountry) return;
+                    setFilteringCountry(true);
+                    pushLog(`Filtering by countries: ${countryFilter.trim()}...`);
+                    const allowed = countryFilter
+                      .split(",")
+                      .map((c) => c.trim().toUpperCase())
+                      .filter(Boolean);
+                    try {
+                      const filtered: ProxyWithSpeed[] = [];
+                      for (const p of rawResults) {
+                        const info = await invoke<CountryInfo | null>("lookup_host_country", {
+                          host: p.proxy.host,
+                        });
+                        if (info && allowed.includes(info.country_code.toUpperCase())) {
+                          filtered.push(p);
+                        }
+                      }
+                      const lines = filtered.map((p) => `${p.proxy.host}:${p.proxy.port}`);
+                      setResults(lines.join("\n"));
+                      setWorkingCount(filtered.length);
+                      pushLog(`Country filter applied: ${filtered.length} proxies matched`, "success");
+                    } catch (err) {
+                      pushLog("GeoIP filter failed — database may not be installed", "warn");
+                    } finally {
+                      setFilteringCountry(false);
+                    }
+                  }}
+                  disabled={!countryFilter.trim() || rawResults.length === 0 || filteringCountry}
+                  className="h-9 px-3 rounded-button text-[0.75rem] font-medium border border-border bg-surface-hover hover:bg-border transition-colors disabled:opacity-40"
+                >
+                  {filteringCountry ? "…" : "Apply"}
+                </button>
+              </div>
+              <p className="text-[0.6875rem] text-foreground-muted mt-1.5">
+                Requires GeoIP Database plugin. Applied after checking.
+              </p>
+            </div>
+
             <button
               onClick={handleStartCheck}
               disabled={checking}
@@ -350,9 +409,9 @@ export default function ProxyCheckerPage() {
           </div>
         </aside>
 
-        {/* Right panel: results + console */}
+        {}
         <section className="flex flex-col min-h-0 gap-4">
-          {/* Results card */}
+          {}
           <div className="bg-surface-card border border-border rounded-card shadow-card flex-1 flex flex-col overflow-hidden min-h-0">
             <div className="px-6 py-4 border-b border-border flex justify-between items-center shrink-0">
               <div className="text-[0.875rem] font-semibold flex items-center gap-2">
@@ -430,7 +489,7 @@ export default function ProxyCheckerPage() {
             </div>
           </div>
 
-          {/* Console log */}
+          {}
           <div className="bg-surface-card border border-border rounded-card shadow-card shrink-0 h-[11rem] flex flex-col overflow-hidden">
             <div className="px-5 py-3 border-b border-border flex items-center gap-2 shrink-0">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-foreground-muted">

@@ -82,7 +82,6 @@ function ProxyListSelector({
     fetchProxyLists().then(setCustomLists);
   }, []);
 
-  // Keep local state in sync with prop
   useEffect(() => {
     setSelected(currentList);
   }, [currentList]);
@@ -146,9 +145,6 @@ function ProxyListSelector({
   );
 }
 
-// ═══════════════════════════════════════════════════════════════════════════
-// Page component
-// ═══════════════════════════════════════════════════════════════════════════
 export default function ProxyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -157,7 +153,6 @@ export default function ProxyDetailPage() {
 
   const instance = instances.find((i) => i.id === id);
 
-  // ── Logs ───────────────────────────────────────────────────────────────
   const [logs, setLogs] = useState<string[]>([]);
 
   useEffect(() => {
@@ -167,7 +162,7 @@ export default function ProxyDetailPage() {
         const result = await invoke<string[]>("get_instance_logs", { id });
         setLogs(result);
       } catch {
-        /* instance may not exist yet */
+        
       }
     };
     fetchLogs();
@@ -175,7 +170,6 @@ export default function ProxyDetailPage() {
     return () => clearInterval(interval);
   }, [id]);
 
-  // ── Rename ─────────────────────────────────────────────────────────────
   const [editing, setEditing] = useState(false);
   const [newName, setNewName] = useState("");
 
@@ -189,7 +183,6 @@ export default function ProxyDetailPage() {
     }
   };
 
-  // ── Latency history for the chart ──────────────────────────────────────
   const [latencyHistory, setLatencyHistory] = useState<number[]>(
     new Array(LATENCY_BAR_COUNT).fill(0),
   );
@@ -202,18 +195,14 @@ export default function ProxyDetailPage() {
       return;
     }
 
-    // Use last_request_latency_ms for real per-request fluctuations on the chart.
-    // Fall back to avg_latency_ms if no per-request data yet.
     const lastReqMs = instance.stats?.last_request_latency_ms ?? 0;
     const avgMs = instance.stats?.avg_latency_ms ?? 0;
     const dataPoint = lastReqMs > 0 ? lastReqMs : avgMs;
     setLatencyHistory((prev) => [...prev.slice(1), dataPoint]);
   }, [instance]);
 
-  // ── Show all logs toggle ─────────────────────────────────────────────
   const [showAllLogs, setShowAllLogs] = useState(false);
 
-  // ── Test connection & Change IP ──────────────────────────────────────
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<number | "fail" | null>(null);
   const [changingIp, setChangingIp] = useState(false);
@@ -252,7 +241,35 @@ export default function ProxyDetailPage() {
     }
   };
 
-  // ── Delete with confirmation ───────────────────────────────────────────
+  const [systemProxyActive, setSystemProxyActive] = useState(false);
+  const [systemProxyBusy, setSystemProxyBusy] = useState(false);
+
+  useEffect(() => {
+    if (!instance || instance.status !== "Running") return;
+    const server = `${instance.bind_addr}:${instance.port}`;
+    invoke<{ enabled: boolean; server: string | null }>("get_system_proxy_status")
+      .then((s) => setSystemProxyActive(!!s.enabled && s.server === server))
+      .catch(() => {});
+  }, [instance]);
+
+  const handleToggleSystemProxy = async () => {
+    if (!instance || systemProxyBusy) return;
+    setSystemProxyBusy(true);
+    try {
+      if (systemProxyActive) {
+        await invoke("unset_system_proxy");
+        setSystemProxyActive(false);
+      } else {
+        await invoke("set_as_system_proxy", { id: instance.id });
+        setSystemProxyActive(true);
+      }
+    } catch (err) {
+      console.error("System proxy toggle failed:", err);
+    } finally {
+      setSystemProxyBusy(false);
+    }
+  };
+
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleDelete = async () => {
@@ -261,7 +278,6 @@ export default function ProxyDetailPage() {
     navigate("/");
   };
 
-  // ── Copy to clipboard ─────────────────────────────────────────────────
   const [copiedField, setCopiedField] = useState<string | null>(null);
 
   const copyToClipboard = (text: string, field: string) => {
@@ -270,7 +286,6 @@ export default function ProxyDetailPage() {
     setTimeout(() => setCopiedField(null), 2000);
   };
 
-  // ── Guard ──────────────────────────────────────────────────────────────
   if (!instance) {
     return (
       <div className="flex flex-col items-center justify-center h-full text-center">
@@ -287,7 +302,6 @@ export default function ProxyDetailPage() {
     );
   }
 
-  // ── Derived state ──────────────────────────────────────────────────────
   const isRunning = instance.status === "Running";
   const isStarting = instance.status === "Starting";
   const isBusy = busyIds.has(instance.id);
@@ -327,7 +341,6 @@ export default function ProxyDetailPage() {
         ? "bg-[#FF3B30]"
         : "bg-foreground-muted";
 
-  // ── Real performance stats ─────────────────────────────────────────────
   const stats = instance.stats;
   const avgLatency = stats?.avg_latency_ms ?? 0;
   const successRate = stats?.success_rate ?? 0;
@@ -341,29 +354,23 @@ export default function ProxyDetailPage() {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
   }
 
-  // ── Latency bar heights (normalised) ──────────────────────────────────
   const maxLatency = Math.max(...latencyHistory, 1);
   const latencyBarHeights = latencyHistory.map(
     (v) => (v > 0 ? 15 + (v / maxLatency) * 80 : 4),
   );
 
-  // Parse log entries for the activity table
   const parsedLogs = logs.map(parseLogEntry).reverse();
   const visibleLogs = showAllLogs ? parsedLogs : parsedLogs.slice(0, 10);
 
-  // Country flag detection
   const countryFlag = detectCountryFlag(instance.name);
   const initials = getInitials(instance.name);
 
-  // ════════════════════════════════════════════════════════════════════════
-  // Render
-  // ════════════════════════════════════════════════════════════════════════
   return (
     <div>
-      {/* ── Header ──────────────────────────────────────────────────── */}
+      {}
       <header className="mb-8 flex justify-between items-end">
         <div>
-          {/* Breadcrumbs: Home / Proxies / Proxy */}
+          {}
           <div className="flex gap-2 text-foreground-muted text-[0.8125rem] mb-3 items-center">
             <button
               type="button"
@@ -384,7 +391,7 @@ export default function ProxyDetailPage() {
             <span className="text-foreground">Proxy</span>
           </div>
 
-          {/* Title (editable) */}
+          {}
           {editing ? (
             <div className="flex items-center gap-2">
               <input
@@ -427,7 +434,7 @@ export default function ProxyDetailPage() {
           )}
         </div>
 
-        {/* Action buttons */}
+        {}
         <div className="flex items-center gap-3 shrink-0">
           {isRunning ? (
             <>
@@ -513,17 +520,17 @@ export default function ProxyDetailPage() {
         </div>
       </header>
 
-      {/* ── Details grid ────────────────────────────────────────────── */}
+      {}
       <div className="grid grid-cols-12 gap-4 md:gap-6">
 
-        {/* ─── Connection Details (span 5) ────────────────────────── */}
+        {}
         <div className="col-span-12 lg:col-span-5 bg-surface-card border border-border rounded-card p-6 shadow-card">
           <div className="text-[1rem] font-semibold mb-5">
             Connection Details
           </div>
 
           <div className="flex flex-col gap-4">
-            {/* Status */}
+            {}
             <div className="flex justify-between items-center pb-3 border-b border-border">
               <span className="text-foreground-muted text-[0.8125rem]">Status</span>
               <span className="flex items-center text-[0.8125rem] font-semibold">
@@ -532,7 +539,7 @@ export default function ProxyDetailPage() {
               </span>
             </div>
 
-            {/* IP Address */}
+            {}
             <div className="flex justify-between items-center pb-3 border-b border-border">
               <span className="text-foreground-muted text-[0.8125rem]">IP Address</span>
               <span
@@ -551,7 +558,7 @@ export default function ProxyDetailPage() {
               </span>
             </div>
 
-            {/* Port */}
+            {}
             <div className="flex justify-between items-center pb-3 border-b border-border">
               <span className="text-foreground-muted text-[0.8125rem]">Port</span>
               <span
@@ -570,7 +577,7 @@ export default function ProxyDetailPage() {
               </span>
             </div>
 
-            {/* Protocol */}
+            {}
             <div className="flex justify-between items-center pb-3 border-b border-border">
               <span className="text-foreground-muted text-[0.8125rem]">Protocol</span>
               <span className="font-mono font-medium bg-surface-hover px-2 py-1 rounded-[0.375rem] text-[0.8125rem]">
@@ -578,7 +585,7 @@ export default function ProxyDetailPage() {
               </span>
             </div>
 
-            {/* Mode */}
+            {}
             <div className="flex justify-between items-center pb-3 border-b border-border">
               <span className="text-foreground-muted text-[0.8125rem]">Mode</span>
               <span className="font-mono font-medium bg-surface-hover px-2 py-1 rounded-[0.375rem] text-[0.8125rem]">
@@ -586,7 +593,7 @@ export default function ProxyDetailPage() {
               </span>
             </div>
 
-            {/* Upstream / Tor */}
+            {}
             <div className="flex justify-between items-center">
               <span className="text-foreground-muted text-[0.8125rem]">
                 {instance.mode === "Tor" ? "Network" : "Upstream"}
@@ -601,7 +608,36 @@ export default function ProxyDetailPage() {
             </div>
           </div>
 
-          {/* Error message */}
+          {}
+          {isRunning && (
+            <div className="mt-4 pt-4 border-t border-border flex items-center justify-between">
+              <div>
+                <div className="text-[0.8125rem] font-medium">System Proxy</div>
+                <div className="text-[0.6875rem] text-foreground-muted mt-0.5">
+                  {systemProxyActive
+                    ? "This proxy is set as the system-wide proxy"
+                    : "Route all system traffic through this proxy"}
+                </div>
+              </div>
+              <button
+                disabled={systemProxyBusy}
+                onClick={handleToggleSystemProxy}
+                className={`h-8 px-3 rounded-button text-[0.75rem] font-medium transition-all disabled:opacity-50 ${
+                  systemProxyActive
+                    ? "bg-[rgba(255,59,48,0.1)] text-[#FF3B30] border border-[rgba(255,59,48,0.3)]"
+                    : "bg-surface-hover border border-border hover:border-border-focus"
+                }`}
+              >
+                {systemProxyBusy
+                  ? "…"
+                  : systemProxyActive
+                    ? "Unset"
+                    : "Set as System Proxy"}
+              </button>
+            </div>
+          )}
+
+          {}
           {errorMsg && (
             <div className="mt-5 text-[0.75rem] text-[#FF3B30] bg-[rgba(255,59,48,0.1)] px-4 py-3 rounded-button">
               {errorMsg}
@@ -609,13 +645,13 @@ export default function ProxyDetailPage() {
           )}
         </div>
 
-        {/* ─── Performance Metrics (span 7) ───────────────────────── */}
+        {}
         <div className="col-span-12 lg:col-span-7 bg-surface-card border border-border rounded-card p-6 shadow-card relative overflow-hidden metrics-glow flex flex-col">
           <div className="text-[1rem] font-semibold mb-5 relative z-10">
             Performance
           </div>
 
-          {/* Stat row */}
+          {}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-5 mb-6 relative z-10">
             <div className="flex flex-col">
               <span className="text-[0.75rem] text-foreground-muted mb-1">Avg. Latency</span>
@@ -639,7 +675,7 @@ export default function ProxyDetailPage() {
             </div>
           </div>
 
-          {/* Latency graph */}
+          {}
           <span className="text-[0.75rem] text-foreground-muted relative z-10">
             Latency Fluctuations
           </span>
@@ -654,7 +690,7 @@ export default function ProxyDetailPage() {
           </div>
         </div>
 
-        {/* ─── Activity Logs (span 8) ─────────────────────────────── */}
+        {}
         <div className="col-span-12 lg:col-span-8 bg-surface-card border border-border rounded-card p-6 shadow-card">
           <div className="text-[1rem] font-semibold mb-5 flex items-center justify-between">
             Activity Logs
@@ -669,7 +705,7 @@ export default function ProxyDetailPage() {
             )}
           </div>
 
-          {/* Table */}
+          {}
           <div className={showAllLogs ? "overflow-auto" : "max-h-[18rem] overflow-auto"}>
             <table className="w-full">
               <thead>
@@ -733,11 +769,11 @@ export default function ProxyDetailPage() {
           </div>
         </div>
 
-        {/* ─── Configuration (span 4) ─────────────────────────────── */}
+        {}
         <div className="col-span-12 lg:col-span-4 bg-surface-card border border-border rounded-card p-6 shadow-card">
           <div className="text-[1rem] font-semibold mb-5">Configuration</div>
 
-          {/* Auto-Rotation (only for Auto mode) */}
+          {}
           {instance.mode === "Auto" && (
             <div className="mb-5">
               <div className="flex justify-between items-center mb-1">
@@ -774,12 +810,12 @@ export default function ProxyDetailPage() {
             </div>
           )}
 
-          {/* Proxy List (not for Tor) */}
+          {}
           {instance.mode !== "Tor" && (
             <ProxyListSelector instanceId={id} currentList={instance.proxy_list} />
           )}
 
-          {/* Danger zone */}
+          {}
           <div className="mt-8 pt-6 border-t border-border">
             {confirmDelete ? (
               <div className="flex flex-col gap-2">

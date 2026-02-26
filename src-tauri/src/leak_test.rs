@@ -29,7 +29,6 @@ const IP_CHECK_SERVICES: &[&str] = &[
     "https://ifconfig.me/ip",
 ];
 
-/// Get the current public IP address without any proxy.
 pub async fn get_real_ip() -> Result<String> {
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
@@ -55,7 +54,6 @@ pub async fn get_real_ip() -> Result<String> {
     Err(anyhow::anyhow!("Failed to determine real IP"))
 }
 
-/// Get the public IP address as seen through a proxy.
 pub async fn get_proxy_ip(proxy: &Proxy) -> Result<String> {
     let proxy_url = match proxy.protocol {
         crate::proxy_type::ProxyProtocol::Http | crate::proxy_type::ProxyProtocol::Https => {
@@ -92,7 +90,6 @@ pub async fn get_proxy_ip(proxy: &Proxy) -> Result<String> {
     Err(anyhow::anyhow!("Failed to determine proxy IP"))
 }
 
-/// Perform a full IP leak test.
 pub async fn check_ip_leak(proxy: Option<&Proxy>) -> IpLeakResult {
     let real_ip = get_real_ip().await.ok();
 
@@ -119,7 +116,6 @@ pub async fn check_ip_leak(proxy: Option<&Proxy>) -> IpLeakResult {
     }
 }
 
-/// Perform a DNS leak test by checking which DNS resolver is visible externally.
 pub async fn check_dns_leak() -> DnsLeakResult {
     let dns_servers = crate::dns_resolver::detect_dns_servers().await;
 
@@ -131,7 +127,6 @@ pub async fn check_dns_leak() -> DnsLeakResult {
     }
 }
 
-/// Run the complete leak test suite.
 pub async fn run_full_leak_test(proxy: Option<&Proxy>) -> LeakTestResult {
     let (ip_result, dns_result) = tokio::join!(check_ip_leak(proxy), check_dns_leak());
 

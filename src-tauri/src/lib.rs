@@ -1,31 +1,41 @@
 mod anonymity_check;
 mod atomic_write;
+mod builtin_plugins;
 mod commands;
 mod cred_encrypt;
 mod dns_resolver;
+mod geoip;
+mod import_export;
 mod kill_switch;
 mod leak_test;
 mod local_proxy;
+mod notifications;
+mod plugin_manager;
+mod plugin_sdk;
 mod port_kill;
+mod profiles;
 mod proxy_cache;
 mod proxy_chain;
 mod proxy_instance;
 mod proxy_lists;
 mod proxy_manager;
 mod proxy_type;
+mod scheduler;
 mod settings;
 mod sources;
 mod speed_test;
+mod split_tunnel;
+mod system_proxy;
 mod tls_fingerprint;
 mod upstream;
 
-use commands::{KillSwitchStateWrapper, ProxyManagerState, SettingsState};
+use commands::{KillSwitchStateWrapper, PluginManagerState, ProxyManagerState, SettingsState};
+use plugin_manager::PluginManager;
 use proxy_manager::ProxyManager;
 use settings::AppSettings;
 use tokio::sync::Mutex;
 use tracing_subscriber::EnvFilter;
 
-/// Rebuild the tray menu to reflect the current state of proxy instances.
 async fn refresh_tray_menu(app: &tauri::AppHandle) {
     use crate::proxy_instance::ProxyStatusInfo;
     use tauri::menu::{MenuBuilder, MenuItem};
@@ -127,13 +137,20 @@ pub fn run() {
             mgr
         });
 
+    let plugin_manager = PluginManager::new().unwrap_or_else(|e| {
+        tracing::warn!("[plugin] Failed to initialize plugin manager: {}", e);
+        PluginManager::new_empty()
+    });
+
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_autostart::init(
             tauri_plugin_autostart::MacosLauncher::LaunchAgent,
             Some(vec!["--hidden"]),
         ))
         .manage(ProxyManagerState(Mutex::new(manager)))
+        .manage(PluginManagerState(Mutex::new(plugin_manager)))
         .manage(SettingsState(Mutex::new(settings)))
         .manage(KillSwitchStateWrapper(kill_switch::KillSwitchState::new()))
         .setup(|app| {
@@ -228,6 +245,85 @@ pub fn run() {
             });
 
             {
+                let app_for_sched = app.handle().clone();
+                tauri::async_runtime::spawn(async move {
+                    loop {
+                        tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                        let due = match scheduler::take_due_schedules().await {
+                            Ok(d) => d,
+                            Err(e) => {
+                                tracing::warn!("[scheduler] {}", e);
+                                continue;
+                            }
+                        };
+                        for sched in due {
+                            tracing::info!(
+                                "[scheduler] Running '{}' ({:?})",
+                                sched.name,
+                                sched.action
+                            );
+                            match &sched.action {
+                                scheduler::ScheduleAction::StartInstance { instance_id } => {
+                                    let mgr: tauri::State<'_, ProxyManagerState> =
+                                        app_for_sched.state();
+                                    let sett: tauri::State<'_, SettingsState> =
+                                        app_for_sched.state();
+                                    let ks: tauri::State<'_, KillSwitchStateWrapper> =
+                                        app_for_sched.state();
+                                    if let Err(e) = commands::start_instance(
+                                        app_for_sched.clone(),
+                                        mgr,
+                                        sett,
+                                        ks,
+                                        instance_id.clone(),
+                                        None,
+                                        None,
+                                        None,
+                                    )
+                                    .await
+                                    {
+                                        tracing::warn!(
+                                            "[scheduler] start_instance failed: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                                scheduler::ScheduleAction::StopInstance { instance_id } => {
+                                    let mgr: tauri::State<'_, ProxyManagerState> =
+                                        app_for_sched.state();
+                                    let sett: tauri::State<'_, SettingsState> =
+                                        app_for_sched.state();
+                                    let ks: tauri::State<'_, KillSwitchStateWrapper> =
+                                        app_for_sched.state();
+                                    if let Err(e) =
+                                        commands::stop_instance(app_for_sched.clone(), mgr, sett, ks, instance_id.clone())
+                                            .await
+                                    {
+                                        tracing::warn!(
+                                            "[scheduler] stop_instance failed: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                                scheduler::ScheduleAction::ChangeIp { instance_id } => {
+                                    let mgr: tauri::State<'_, ProxyManagerState> =
+                                        app_for_sched.state();
+                                    if let Err(e) =
+                                        commands::change_ip(mgr, instance_id.clone()).await
+                                    {
+                                        tracing::warn!(
+                                            "[scheduler] change_ip failed: {}",
+                                            e
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+
+            {
                 let app_handle2 = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(std::time::Duration::from_secs(2)).await;
@@ -245,6 +341,7 @@ pub fn run() {
                         let settings_s: tauri::State<'_, SettingsState> = app_handle2.state();
                         let ks_state: tauri::State<'_, KillSwitchStateWrapper> = app_handle2.state();
                         if let Err(e) = commands::start_instance(
+                            app_handle2.clone(),
                             mgr_state,
                             settings_s,
                             ks_state,
@@ -297,6 +394,34 @@ pub fn run() {
             commands::get_kill_switch_recovery_instruction,
             commands::toggle_kill_switch_enabled,
             commands::get_tls_fingerprint_hash,
+            commands::get_plugins,
+            commands::install_plugin,
+            commands::uninstall_plugin,
+            commands::enable_plugin,
+            commands::disable_plugin,
+            commands::get_plugin_settings_schema,
+            commands::open_plugins_folder,
+            commands::lookup_country,
+            commands::lookup_host_country,
+            commands::get_system_proxy_status,
+            commands::set_as_system_proxy,
+            commands::unset_system_proxy,
+            commands::list_profiles,
+            commands::save_profile,
+            commands::delete_profile,
+            commands::load_profile,
+            commands::list_split_tunnel_rules,
+            commands::save_split_tunnel_rule,
+            commands::delete_split_tunnel_rule,
+            commands::get_notification_settings,
+            commands::update_notification_settings,
+            commands::list_schedules,
+            commands::save_schedule,
+            commands::delete_schedule,
+            commands::export_config,
+            commands::import_config,
+            commands::would_stop_trigger_kill_switch,
+            commands::get_bandwidth_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

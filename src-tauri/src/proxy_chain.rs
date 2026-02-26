@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
-/// Maximum number of proxies in a chain (to avoid excessive latency and resource use).
 pub const MAX_CHAIN_DEPTH: usize = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,11 +22,6 @@ impl Default for ProxyChainConfig {
     }
 }
 
-/// Connect through a chain of proxies to reach the target.
-///
-/// The chain works by connecting to the first proxy, then issuing a
-/// CONNECT/SOCKS handshake through it to reach the second proxy,
-/// and so on until the final hop connects to the actual target.
 pub async fn connect_through_chain(
     chain: &[Proxy],
     target_host: &str,
@@ -48,13 +42,10 @@ pub async fn connect_through_chain(
         return upstream::connect_through_proxy(&chain[0], target_host, target_port).await;
     }
 
-    // Connect to the first proxy in the chain.
     let first = &chain[0];
     let first_addr = format!("{}:{}", first.host, first.port);
     let mut stream = TcpStream::connect(&first_addr).await?;
 
-    // For each proxy in the chain, do a handshake through it to the next hop
-    // (next proxy in chain or final target).
     for i in 0..chain.len() {
         let current_proxy = &chain[i];
         let (next_host, next_port) = if i + 1 < chain.len() {
@@ -69,7 +60,6 @@ pub async fn connect_through_chain(
     Ok(stream)
 }
 
-/// Perform a proxy handshake on an already-established TCP stream.
 async fn do_proxy_handshake(
     mut stream: TcpStream,
     proxy: &Proxy,
@@ -137,7 +127,7 @@ async fn socks5_handshake(
     target_host: &str,
     target_port: u16,
 ) -> Result<()> {
-    // Greeting: version 5, 1 method (no auth)
+    
     stream.write_all(&[0x05, 0x01, 0x00]).await?;
 
     let mut response = [0u8; 2];
@@ -146,14 +136,12 @@ async fn socks5_handshake(
         return Err(anyhow!("SOCKS5 handshake failed in chain"));
     }
 
-    // Connect request
     let host_bytes = target_host.as_bytes();
     let mut request = vec![0x05, 0x01, 0x00, 0x03, host_bytes.len() as u8];
     request.extend_from_slice(host_bytes);
     request.extend_from_slice(&target_port.to_be_bytes());
     stream.write_all(&request).await?;
 
-    // Read response (minimum 10 bytes for IPv4)
     let mut resp_header = [0u8; 4];
     stream.read_exact(&mut resp_header).await?;
     if resp_header[1] != 0x00 {
@@ -163,10 +151,9 @@ async fn socks5_handshake(
         ));
     }
 
-    // Skip the bound address
     match resp_header[3] {
         0x01 => {
-            let mut addr = [0u8; 6]; // 4 IP + 2 port
+            let mut addr = [0u8; 6]; 
             stream.read_exact(&mut addr).await?;
         }
         0x03 => {
@@ -176,7 +163,7 @@ async fn socks5_handshake(
             stream.read_exact(&mut domain).await?;
         }
         0x04 => {
-            let mut addr = [0u8; 18]; // 16 IP + 2 port
+            let mut addr = [0u8; 18]; 
             stream.read_exact(&mut addr).await?;
         }
         _ => {}
@@ -190,11 +177,10 @@ async fn socks4_handshake(
     target_host: &str,
     target_port: u16,
 ) -> Result<()> {
-    // SOCKS4a: use domain name
+    
     let port_bytes = target_port.to_be_bytes();
     let domain = target_host.as_bytes();
 
-    // VN=4, CD=1 (CONNECT), port, IP=0.0.0.1 (SOCKS4a), USERID null, domain null
     let mut request = vec![0x04, 0x01, port_bytes[0], port_bytes[1], 0, 0, 0, 1, 0];
     request.extend_from_slice(domain);
     request.push(0);

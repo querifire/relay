@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-/// Recovery instruction shown when kill-switch is active (e.g. after crash).
 pub const KILLSWITCH_RECOVERY_INSTRUCTION: &str = "If Relay was closed while kill-switch was active, \
 run in an elevated Command Prompt (Run as Administrator):\n\n\
 netsh advfirewall firewall delete rule name=RelayKillSwitch_BlockAll\n\
@@ -30,15 +29,14 @@ impl Default for KillSwitchConfig {
     }
 }
 
-/// Global kill-switch state.
 pub struct KillSwitchState {
-    /// Whether the kill-switch feature is enabled in settings.
+    
     enabled: AtomicBool,
-    /// Whether the kill-switch firewall rules are currently active.
+    
     active: AtomicBool,
-    /// Allowed local ports (proxy server ports).
+    
     allowed_ports: Arc<parking_lot::RwLock<Vec<u16>>>,
-    /// Allowed remote IPs (upstream proxy IPs only — no blanket 443/53).
+    
     allowed_upstream_ips: Arc<parking_lot::RwLock<Vec<String>>>,
 }
 
@@ -79,7 +77,6 @@ impl KillSwitchState {
         }
     }
 
-    /// Activate the kill-switch (block all non-proxy traffic).
     pub fn activate(&self) -> Result<()> {
         if !self.is_enabled() {
             return Err(anyhow!("Kill-switch is not enabled"));
@@ -102,7 +99,6 @@ impl KillSwitchState {
         Ok(())
     }
 
-    /// Deactivate the kill-switch (remove firewall rules).
     pub fn deactivate(&self) -> Result<()> {
         if !self.is_active() {
             return Ok(());
@@ -134,17 +130,14 @@ fn relay_config_dir() -> std::path::PathBuf {
         .join("relay")
 }
 
-/// Path to file storing list of created firewall rule names (for precise cleanup).
 fn rules_state_path() -> std::path::PathBuf {
     relay_config_dir().join("killswitch_rules.json")
 }
 
-/// Path to recovery instruction file (written on activate so user can find it after crash).
 fn recovery_instruction_path() -> std::path::PathBuf {
     relay_config_dir().join("KILLSWITCH_RECOVERY.txt")
 }
 
-/// Write recovery instruction to config dir when kill-switch is activated (Windows).
 #[cfg(target_os = "windows")]
 fn write_recovery_instruction_file() {
     let path = recovery_instruction_path();
@@ -157,8 +150,6 @@ fn write_recovery_instruction_file() {
 #[cfg(not(target_os = "windows"))]
 fn write_recovery_instruction_file() {}
 
-/// Remove any orphaned kill-switch firewall rules (e.g. after app crash).
-/// Safe to call at startup; does not change in-memory active state.
 pub fn cleanup_orphaned_rules() {
     if let Err(e) = remove_firewall_rules() {
         tracing::debug!("Kill-switch cleanup (orphaned rules): {}", e);
@@ -167,6 +158,8 @@ pub fn cleanup_orphaned_rules() {
 
 #[cfg(target_os = "windows")]
 fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) -> Result<()> {
+    use std::net::IpAddr;
+
     let _ = remove_firewall_rules();
 
     let mut rule_names: Vec<String> = Vec::new();
@@ -189,7 +182,6 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
         tracing::warn!("Failed to add block rule: {}", stderr);
     }
 
-    // Allow localhost only (no blanket 443/53).
     let loopback_rule = format!("{}_AllowLoopback", RULE_NAME_PREFIX);
     let _ = std::process::Command::new("netsh")
         .args([
@@ -204,9 +196,23 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
         .output()?;
     rule_names.push(loopback_rule);
 
-    // Allow TCP only to specific upstream proxy IPs (no bypass via arbitrary 443).
-    if !allowed_upstream_ips.is_empty() {
-        let remoteip = allowed_upstream_ips.join(",");
+    let validated_ips: Vec<&str> = allowed_upstream_ips
+        .iter()
+        .filter_map(|ip| {
+            if ip.parse::<IpAddr>().is_ok() {
+                Some(ip.as_str())
+            } else {
+                tracing::warn!(
+                    "[kill-switch] Skipping invalid IP in netsh rules (possible injection attempt): {:?}",
+                    ip
+                );
+                None
+            }
+        })
+        .collect();
+
+    if !validated_ips.is_empty() {
+        let remoteip = validated_ips.join(",");
         let upstream_rule = format!("{}_AllowUpstreamIPs", RULE_NAME_PREFIX);
         let _ = std::process::Command::new("netsh")
             .args([
@@ -240,7 +246,6 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
         rule_names.push(rule_name);
     }
 
-    // Persist rule names for precise cleanup (and recovery after crash).
     if let Some(parent) = rules_state_path().parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -265,7 +270,7 @@ fn remove_firewall_rules() -> Result<()> {
     };
 
     if rule_names.is_empty() {
-        // Legacy: no state file — delete by known names and wildcard.
+        
         for suffix in &["BlockAll", "AllowLoopback", "AllowUpstreamIPs"] {
             let _ = std::process::Command::new("netsh")
                 .args([
@@ -298,6 +303,8 @@ fn remove_firewall_rules() -> Result<()> {
 
 #[cfg(target_os = "linux")]
 fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) -> Result<()> {
+    use std::net::IpAddr;
+
     let _ = remove_firewall_rules();
 
     let _ = std::process::Command::new("iptables")
@@ -313,6 +320,14 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
         .output()?;
 
     for ip in allowed_upstream_ips {
+        
+        if ip.parse::<IpAddr>().is_err() {
+            tracing::warn!(
+                "[kill-switch] Skipping invalid IP in iptables rules (possible injection attempt): {:?}",
+                ip
+            );
+            continue;
+        }
         let _ = std::process::Command::new("iptables")
             .args(["-A", RULE_NAME_PREFIX, "-p", "tcp", "-d", ip, "-j", "ACCEPT"])
             .output()?;
@@ -358,6 +373,14 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
 
     rules.push_str("pass out on lo0 all\n");
     for ip in allowed_upstream_ips {
+        
+        if ip.parse::<std::net::IpAddr>().is_err() {
+            tracing::warn!(
+                "[kill-switch] Skipping invalid IP in pfctl rules (possible injection attempt): {:?}",
+                ip
+            );
+            continue;
+        }
         rules.push_str(&format!("pass out proto tcp to {}\n", ip));
     }
     for port in allowed_ports {
@@ -366,16 +389,13 @@ fn apply_firewall_rules(allowed_ports: &[u16], allowed_upstream_ips: &[String]) 
 
     rules.push_str("block out all\n");
 
-    // Write rules to a temp file.
     let rules_path = std::env::temp_dir().join("relay_killswitch.conf");
     std::fs::write(&rules_path, &rules)?;
 
-    // Load the anchor rules.
     let _ = std::process::Command::new("pfctl")
         .args(["-a", anchor_name, "-f", &rules_path.to_string_lossy()])
         .output()?;
 
-    // Enable pf if not already.
     let _ = std::process::Command::new("pfctl")
         .args(["-e"])
         .output();

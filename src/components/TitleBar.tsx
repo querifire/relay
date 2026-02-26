@@ -16,7 +16,6 @@ export default function TitleBar({ onMenuClick }: TitleBarProps) {
     
     updateIsMaximized();
     
-    // Listen for resize events to update the maximize icon
     let unlisten: (() => void) | undefined;
     
     getCurrentWindow().onResized(() => {
@@ -48,7 +47,7 @@ export default function TitleBar({ onMenuClick }: TitleBarProps) {
       data-tauri-drag-region
     >
       <div className="flex items-center gap-3" data-tauri-drag-region>
-        {/* Mobile hamburger menu */}
+        {}
         <button 
           onClick={onMenuClick}
           className="md:hidden p-1 -ml-2 rounded-md hover:bg-surface-hover text-foreground-muted hover:text-foreground transition-colors"
@@ -61,7 +60,7 @@ export default function TitleBar({ onMenuClick }: TitleBarProps) {
           </svg>
         </button>
         
-        {/* App Title */}
+        {}
         <div className="flex items-center gap-2 pointer-events-none">
           <div
             className="w-4 h-4 rounded-[0.25rem]"
@@ -75,10 +74,10 @@ export default function TitleBar({ onMenuClick }: TitleBarProps) {
         </div>
       </div>
 
-      {/* Spacer to allow dragging in the middle */}
+      {}
       <div className="flex-1 h-full" data-tauri-drag-region />
 
-      {/* Window Controls */}
+      {}
       <div className="flex h-full">
         <button
           onClick={handleMinimize}

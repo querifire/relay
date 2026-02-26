@@ -27,7 +27,7 @@ export interface ProxyStatsInfo {
   avg_latency_ms: number;
   success_rate: number;
   total_bytes: number;
-  /** Latency (ms) of the most recent proxied request — used for fluctuation chart. */
+  
   last_request_latency_ms: number;
 }
 
@@ -40,19 +40,19 @@ export interface ProxyInstanceInfo {
   status: ProxyStatusInfo;
   upstream: Proxy | null;
   local_protocol: ProxyProtocol;
-  /** True if local proxy auth is configured (credentials not exposed to frontend). */
+  
   has_auth: boolean;
   auto_rotate: boolean;
   auto_rotate_minutes: number | null;
   proxy_list: string;
   stats: ProxyStatsInfo;
-  /** Latency (ms) of the upstream proxy from the last speed test. */
+  
   upstream_latency_ms: number;
-  /** Whether this instance auto-starts on application boot. */
+  
   auto_start_on_boot: boolean;
-  /** Anonymity level of the upstream proxy. */
+  
   anonymity_level: AnonymityLevel | null;
-  /** Proxy chain configuration. */
+  
   proxy_chain: ProxyChainConfig | null;
 }
 
@@ -61,7 +61,7 @@ export interface ProxyCacheStats {
   socks5: number;
   socks4: number;
   http: number;
-  last_updated: number; // unix timestamp (seconds)
+  last_updated: number; 
 }
 
 export interface ProxyListConfig {
@@ -97,12 +97,12 @@ export interface AppSettings {
   default_bind: string;
   concurrency: number;
   auto_rotate_minutes: number | null;
-  tor_binary_path: string | null;
-  tor_socks_port: number | null;
+  tor_config: TorConfig;
   dns_protection: DnsResolverConfig;
   kill_switch: KillSwitchConfig;
   tls_fingerprint: TlsFingerprintConfig;
   start_hidden: boolean;
+  notifications: NotificationSettings;
 }
 
 export interface IpLeakResult {
@@ -120,4 +120,145 @@ export interface DnsLeakResult {
 export interface LeakTestResult {
   ip: IpLeakResult;
   dns: DnsLeakResult;
+}
+
+export type PluginType = "builtin" | "external";
+
+export type PluginStatus =
+  | "not_installed"
+  | "installing"
+  | "installed"
+  | "enabled"
+  | "error";
+
+export interface PluginInfo {
+  id: string;
+  name: string;
+  version: string;
+  description: string;
+  plugin_type: PluginType;
+  installed: boolean;
+  enabled: boolean;
+  last_error: string | null;
+}
+
+export interface PluginUiInfo extends PluginInfo {
+  status: PluginStatus;
+}
+
+export type BridgeType = "Obfs4" | "MeekAzure" | "Snowflake" | "WebTunnel" | "Custom";
+
+export interface TorConfig {
+  binary_path: string | null;
+  socks_port: number;
+  use_bridges: boolean;
+  bridge_type: BridgeType;
+  custom_bridges: string[];
+  exit_nodes: string | null;
+  entry_nodes: string | null;
+  exclude_nodes: string | null;
+  strict_nodes: boolean;
+  custom_torrc: string | null;
+}
+
+export interface CountryInfo {
+  country_code: string;
+  country_name: string | null;
+}
+
+export interface SystemProxyInfo {
+  enabled: boolean;
+  host: string | null;
+  port: number | null;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  description: string | null;
+  settings: AppSettings;
+  instances: string[];
+  created_at: number;
+  updated_at: number;
+}
+
+export interface SaveProfileRequest {
+  id: string | null;
+  name: string;
+  description: string | null;
+  settings: AppSettings;
+  instances: string[];
+}
+
+export interface RoutingRule {
+  id: string;
+  name: string;
+  domains: string[];
+  proxy_instance_id: string | null;
+  enabled: boolean;
+}
+
+export interface SaveRoutingRuleRequest {
+  id: string | null;
+  name: string;
+  domains: string[];
+  proxy_instance_id: string | null;
+  enabled: boolean;
+}
+
+export interface ExportResult {
+  path: string;
+}
+
+export interface NotificationSettings {
+  enabled: boolean;
+  proxy_start: boolean;
+  proxy_stop: boolean;
+  proxy_error: boolean;
+  ip_changed: boolean;
+  kill_switch: boolean;
+  leak: boolean;
+  tor: boolean;
+}
+
+export type ScheduleRepeat = "Once" | "Daily";
+
+export type ScheduleAction =
+  | { StartInstance: { instance_id: string } }
+  | { StopInstance: { instance_id: string } }
+  | { ChangeIp: { instance_id: string } };
+
+export interface Schedule {
+  id: string;
+  name: string;
+  time: string;
+  action: ScheduleAction;
+  repeat: ScheduleRepeat;
+  enabled: boolean;
+  last_run_day: number | null;
+}
+
+export interface SaveScheduleRequest {
+  id: string | null;
+  name: string;
+  time: string;
+  action: ScheduleAction;
+  repeat: ScheduleRepeat;
+  enabled: boolean;
+}
+
+export interface ProxyBandwidthDto {
+  id: string;
+  name: string;
+  total_bytes: number;
+  total_requests: number;
+  successful_requests: number;
+  avg_latency_ms: number;
+  success_rate: number;
+}
+
+export interface BandwidthStatsDto {
+  total_bytes: number;
+  total_requests: number;
+  per_proxy: ProxyBandwidthDto[];
 }

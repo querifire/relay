@@ -123,7 +123,6 @@ pub async fn fetch_proxylist_org() -> Result<Vec<Proxy>> {
     .await
 }
 
-
 pub async fn fetch_free_proxy_list_socks4() -> Result<Vec<Proxy>> {
     fetch_from_url("https://api.openproxylist.xyz/socks4.txt", ProxyProtocol::Socks4).await
 }
@@ -191,7 +190,6 @@ pub async fn fetch_vakhov_socks4() -> Result<Vec<Proxy>> {
     )
     .await
 }
-
 
 pub async fn fetch_free_proxy_list_http() -> Result<Vec<Proxy>> {
     fetch_from_url("https://api.openproxylist.xyz/http.txt", ProxyProtocol::Http).await

@@ -65,6 +65,18 @@ const platformItems: NavItem[] = [
       </svg>
     ),
   },
+  {
+    to: "/plugins",
+    label: "Plugins",
+    end: true,
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-[1.125rem] h-[1.125rem]" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
+        <line x1="16" y1="8" x2="2" y2="22" />
+        <line x1="17.5" y1="15" x2="9" y2="15" />
+      </svg>
+    ),
+  },
 ];
 
 const securityItems: NavItem[] = [
@@ -75,6 +87,59 @@ const securityItems: NavItem[] = [
     icon: (
       <svg viewBox="0 0 24 24" className="w-[1.125rem] h-[1.125rem]" fill="none" stroke="currentColor" strokeWidth="2">
         <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+      </svg>
+    ),
+  },
+  {
+    to: "/tor",
+    label: "Tor",
+    end: true,
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-[1.125rem] h-[1.125rem]" fill="none" stroke="currentColor" strokeWidth="2">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+        <line x1="2" y1="12" x2="22" y2="12" />
+      </svg>
+    ),
+  },
+];
+
+const networkItems: NavItem[] = [
+  {
+    to: "/split-tunnel",
+    label: "Split Tunnel",
+    end: true,
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-[1.125rem] h-[1.125rem]" fill="none" stroke="currentColor" strokeWidth="2">
+        <path d="M8 6H21" />
+        <path d="M8 12H21" />
+        <path d="M8 18H21" />
+        <path d="M3 6l1 1-1 1" />
+        <path d="M3 12l1 1-1 1" />
+        <path d="M3 18l1 1-1 1" />
+      </svg>
+    ),
+  },
+  {
+    to: "/bandwidth",
+    label: "Bandwidth",
+    end: true,
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-[1.125rem] h-[1.125rem]" fill="none" stroke="currentColor" strokeWidth="2">
+        <polyline points="22 12 18 12 15 21 9 3 6 12 2 12" />
+      </svg>
+    ),
+  },
+  {
+    to: "/schedule",
+    label: "Schedule",
+    end: true,
+    icon: (
+      <svg viewBox="0 0 24 24" className="w-[1.125rem] h-[1.125rem]" fill="none" stroke="currentColor" strokeWidth="2">
+        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+        <line x1="16" y1="2" x2="16" y2="6" />
+        <line x1="8" y1="2" x2="8" y2="6" />
+        <line x1="3" y1="10" x2="21" y2="10" />
       </svg>
     ),
   },
@@ -137,12 +202,10 @@ export default function Layout() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const isFirstRender = useRef(true);
 
-  // Close sidebar when route changes on mobile
   useEffect(() => {
     setIsSidebarOpen(false);
   }, [location.pathname]);
 
-  // Skip initial animation to avoid flash on load
   useEffect(() => {
     const t = setTimeout(() => {
       isFirstRender.current = false;
@@ -150,7 +213,6 @@ export default function Layout() {
     return () => clearTimeout(t);
   }, []);
 
-  // Determine current page title for breadcrumbs
   const getPageName = () => {
     if (location.pathname === "/") return "Dashboard";
     if (location.pathname === "/settings") return "Settings";
@@ -160,13 +222,18 @@ export default function Layout() {
     if (location.pathname.startsWith("/proxy/")) return "Proxy Detail";
     if (location.pathname === "/leak-test") return "Leak Test";
     if (location.pathname === "/checker") return "Proxy Checker";
+    if (location.pathname === "/plugins") return "Plugins";
+    if (location.pathname === "/tor") return "Tor";
+    if (location.pathname === "/split-tunnel") return "Split Tunnel";
+    if (location.pathname === "/bandwidth") return "Bandwidth";
+    if (location.pathname === "/schedule") return "Schedule";
     return "Page";
   };
 
   return (
     <div className="flex flex-col h-screen overflow-hidden relative" style={{ background: "var(--color-surface)" }}>
 
-      {/* ── Background decorations ────────────────────────────────── */}
+      {}
       <div
         className="absolute inset-0 pointer-events-none"
         style={{
@@ -207,12 +274,12 @@ export default function Layout() {
         }}
       />
 
-      {/* ── App shell ──────────────────────────────────────────────── */}
+      {}
       <div className="relative flex flex-col h-full" style={{ zIndex: 1 }}>
         <TitleBar onMenuClick={() => setIsSidebarOpen(!isSidebarOpen)} />
 
         <div className="flex flex-1 overflow-hidden relative">
-          {/* Mobile Overlay */}
+          {}
           {isSidebarOpen && (
             <div
               className="fixed inset-0 bg-black/60 z-40 md:hidden"
@@ -220,7 +287,7 @@ export default function Layout() {
             />
           )}
 
-          {/* ── Sidebar ───────────────────────────────────────────── */}
+          {}
           <nav
             className={`
               fixed inset-y-0 left-0 z-50 w-[15rem] flex flex-col py-8 px-5 shrink-0
@@ -235,7 +302,7 @@ export default function Layout() {
               borderRight: "1px solid var(--sidebar-border)",
             }}
           >
-            {/* Mobile close button */}
+            {}
             <div className="flex items-center justify-end pl-3 mb-10 md:hidden">
               <button
                 onClick={() => setIsSidebarOpen(false)}
@@ -248,20 +315,21 @@ export default function Layout() {
               </button>
             </div>
 
-            {/* Navigation */}
+            {}
             <div className="flex-1 overflow-y-auto overflow-x-hidden -mx-2 px-2 scrollbar-none">
               <NavGroup label="Platform" items={platformItems} onItemClick={() => setIsSidebarOpen(false)} />
               <NavGroup label="Security" items={securityItems} onItemClick={() => setIsSidebarOpen(false)} />
+              <NavGroup label="Network" items={networkItems} onItemClick={() => setIsSidebarOpen(false)} />
               <NavGroup label="Configuration" items={configItems} onItemClick={() => setIsSidebarOpen(false)} />
             </div>
 
-            {/* Theme toggle (bottom) */}
+            {}
             <div className="pt-4 mt-auto" style={{ borderTop: "1px solid var(--sidebar-border)" }}>
               <ThemeToggle />
             </div>
           </nav>
 
-          {/* ── Main content ──────────────────────────────────────── */}
+          {}
           <main className="flex-1 overflow-y-auto py-6 px-4 sm:py-8 sm:px-8 md:py-10 md:px-12">
             <motion.div
               key={location.pathname}

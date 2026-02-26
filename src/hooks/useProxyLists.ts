@@ -7,7 +7,7 @@ export type { ProxyListConfig };
 export interface ProxySource {
   id: string;
   name: string;
-  url: string; // first URL or inline summary
+  url: string; 
   proxyCount: number;
   status: "Syncing" | "Idle" | "Offline";
   isDefault: boolean;
@@ -22,7 +22,7 @@ export function useProxyLists() {
       const result = await invoke<ProxyListConfig[]>("get_proxy_lists");
       setLists(result);
     } catch {
-      /* backend may not be ready */
+      
     } finally {
       setLoading(false);
     }
@@ -69,7 +69,7 @@ export function useProxyCacheStats() {
       const result = await invoke<ProxyCacheStats>("get_proxy_cache_stats");
       setStats(result);
     } catch {
-      /* backend may not be ready yet */
+      
     }
   }, []);
 

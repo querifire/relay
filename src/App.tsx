@@ -12,6 +12,10 @@ import ProxyPage from "./pages/ProxyPage";
 import ProxyListsPage from "./pages/ProxyListsPage";
 import LeakTestPage from "./pages/LeakTestPage";
 import ProxyCheckerPage from "./pages/ProxyCheckerPage";
+import PluginsPage from "./pages/PluginsPage";
+import SplitTunnelPage from "./pages/SplitTunnelPage";
+import BandwidthPage from "./pages/BandwidthPage";
+import SchedulePage from "./pages/SchedulePage";
 
 function App() {
   const [showWelcome, setShowWelcome] = useState(() => !hasBeenWelcomed());
@@ -33,6 +37,10 @@ function App() {
             <Route path="proxy/:id" element={<ProxyDetailPage />} />
             <Route path="leak-test" element={<LeakTestPage />} />
             <Route path="checker" element={<ProxyCheckerPage />} />
+            <Route path="plugins" element={<PluginsPage />} />
+            <Route path="split-tunnel" element={<SplitTunnelPage />} />
+            <Route path="bandwidth" element={<BandwidthPage />} />
+            <Route path="schedule" element={<SchedulePage />} />
           </Route>
         </Routes>
       </HashRouter>

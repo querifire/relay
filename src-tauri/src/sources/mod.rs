@@ -7,8 +7,6 @@ use anyhow::Result;
 use std::future::Future;
 use std::pin::Pin;
 
-/// Fetch proxies of the specified protocol from all sources.
-/// If `log_sink` is provided, per-source progress is written there.
 pub async fn fetch_proxies(protocol: ProxyProtocol, log_sink: Option<&LogSink>) -> Result<Vec<Proxy>> {
     match protocol {
         ProxyProtocol::Socks5 => fetch_socks5_proxies(log_sink).await,

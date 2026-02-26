@@ -1,22 +1,13 @@
-//! Kill any process listening on a given port (so Tor or another server can bind).
-//! Used before starting Tor when the port is already in use.
 
-/// System/critical ports we must not kill (could break OS or critical services).
 const PROTECTED_PORTS: &[u16] = &[
     21, 22, 23, 25, 53, 80, 110, 143, 443, 445, 465, 587, 993, 995, 3306, 5432, 6379, 8080, 8443,
 ];
 
-/// Returns true if something is listening on `port`, false otherwise. Use this to fail with a
-/// user-facing error instead of killing processes automatically.
 pub fn port_is_in_use(port: u16) -> Result<bool, String> {
     let pids = pids_listening_on_port(port)?;
     Ok(!pids.is_empty())
 }
 
-/// Try to kill process(es) listening on `port`.
-/// Refuses to touch protected/system ports. On Windows uses netstat + taskkill; on Unix uses lsof + kill.
-/// Returns Ok(true) if at least one process was killed, Ok(false) if port was free, Err on failure.
-/// Prefer failing with a clear error and asking the user to free the port instead of calling this.
 pub fn kill_process_on_port(port: u16) -> Result<bool, String> {
     if PROTECTED_PORTS.contains(&port) {
         return Err(format!(
@@ -57,11 +48,11 @@ fn pids_listening_on_port(port: u16) -> Result<Vec<u32>, String> {
         if !line.contains("LISTENING") {
             continue;
         }
-        // Match port as whole token (e.g. :905 not :9050)
+        
         if !port_match_in_line(line, &port_str) {
             continue;
         }
-        // Last column is PID (e.g. "  TCP    127.0.0.1:905    0.0.0.0:0    LISTENING    12345")
+        
         let parts: Vec<&str> = line.split_whitespace().collect();
         if let Some(last) = parts.last() {
             if let Ok(pid) = last.parse::<u32>() {

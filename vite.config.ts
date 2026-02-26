@@ -6,7 +6,6 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(async () => ({
   plugins: [react()],
 
-  // Prevent vite from obscuring Rust errors
   clearScreen: false,
 
   server: {
@@ -21,7 +20,7 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // Tell Vite to ignore watching `src-tauri`
+      
       ignored: ["**/src-tauri/**"],
     },
   },

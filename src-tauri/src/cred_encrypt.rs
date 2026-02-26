@@ -1,5 +1,3 @@
-//! Encrypt/decrypt instance passwords at rest. Key is stored in config dir.
-//! On Windows the key file is protected with DPAPI (user-only decryption).
 
 use anyhow::{anyhow, Result};
 use chacha20poly1305::aead::{Aead, KeyInit};
@@ -128,7 +126,6 @@ fn get_or_create_key() -> Result<[u8; 32]> {
     Ok(key)
 }
 
-/// Encrypt a password for storage. Returns base64-encoded ciphertext (nonce + ciphertext).
 pub fn encrypt_password(plain: &str) -> Result<String> {
     let key = get_or_create_key()?;
     let cipher = ChaCha20Poly1305::new_from_slice(&key).map_err(|e| anyhow!("{:?}", e))?;
@@ -145,7 +142,6 @@ pub fn encrypt_password(plain: &str) -> Result<String> {
     ))
 }
 
-/// Decrypt a password from storage. Input is base64-encoded (nonce + ciphertext).
 pub fn decrypt_password(encoded: &str) -> Result<String> {
     let key = get_or_create_key()?;
     let bytes = base64::Engine::decode(
