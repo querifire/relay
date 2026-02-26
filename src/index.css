@@ -6,6 +6,8 @@
 
 html {
   font-size: clamp(13px, 0.8333vw, 32px);
+  overflow: hidden;
+  height: 100%;
 }
 
 :root {

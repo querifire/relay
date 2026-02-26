@@ -316,7 +316,7 @@ export default function WelcomeScreen({ onContinue }: WelcomeScreenProps) {
             animate={{ opacity: 1 }}
             transition={{ delay: 2.2, duration: 0.5 }}
           >
-            v0.1.0
+            v0.3.0
           </motion.div>
         </motion.div>
       )}

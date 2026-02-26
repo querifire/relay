@@ -173,7 +173,7 @@ impl PluginManager {
                 s.last_error = None;
             }),
             Err(e) => {
-                let msg = e.to_string();
+                let msg = format!("{:#}", e);
                 self.update_state(id, |s| s.last_error = Some(msg.clone()))?;
                 Err(anyhow!(msg))
             }
@@ -192,7 +192,7 @@ impl PluginManager {
                 s.last_error = None;
             }),
             Err(e) => {
-                let msg = e.to_string();
+                let msg = format!("{:#}", e);
                 self.update_state(id, |s| s.last_error = Some(msg.clone()))?;
                 Err(anyhow!(msg))
             }
@@ -210,7 +210,7 @@ impl PluginManager {
                 s.last_error = None;
             }),
             Err(e) => {
-                let msg = e.to_string();
+                let msg = format!("{:#}", e);
                 self.update_state(id, |s| s.last_error = Some(msg.clone()))?;
                 Err(anyhow!(msg))
             }
@@ -228,7 +228,7 @@ impl PluginManager {
                 s.last_error = None;
             }),
             Err(e) => {
-                let msg = e.to_string();
+                let msg = format!("{:#}", e);
                 self.update_state(id, |s| s.last_error = Some(msg.clone()))?;
                 Err(anyhow!(msg))
             }

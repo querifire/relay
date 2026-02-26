@@ -1,12 +1,18 @@
 use crate::plugin_sdk::{PluginContext, PluginType, RelayPlugin};
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::io::Write;
 use std::path::PathBuf;
+use std::time::Duration;
 
-const GEOIP_DB_URL: &str =
-    "https://raw.githubusercontent.com/P3TERX/GeoLite.mmdb/download/GeoLite2-Country.mmdb";
 const GEOIP_DB_FILE: &str = "GeoLite2-Country.mmdb";
+
+const GEOIP_DOWNLOAD_URLS: &[&str] = &[
+    "https://github.com/P3TERX/GeoLite.mmdb/releases/latest/download/GeoLite2-Country.mmdb",
+    "https://github.com/Loyalsoldier/geoip/releases/latest/download/GeoLite2-Country.mmdb",
+];
+
+const MMDB_MAGIC: &[u8] = b"\xab\xcd\xefMaxMind.com";
 
 pub struct GeoIpPlugin;
 
@@ -23,30 +29,84 @@ impl GeoIpPlugin {
         Self::install_dir(ctx).join(GEOIP_DB_FILE)
     }
 
-    fn download_url() -> String {
+    fn primary_url() -> String {
         std::env::var("RELAY_GEOIP_DB_URL")
             .ok()
             .filter(|v| !v.trim().is_empty())
-            .unwrap_or_else(|| GEOIP_DB_URL.to_string())
+            .unwrap_or_else(|| GEOIP_DOWNLOAD_URLS[0].to_string())
     }
 
-    fn download_bytes_in_thread(url: &str) -> Result<Vec<u8>> {
-        let url = url.to_string();
-        let (tx, rx) = std::sync::mpsc::channel::<Result<Vec<u8>>>();
-        std::thread::spawn(move || {
-            let result = (|| -> Result<Vec<u8>> {
-                let bytes = reqwest::blocking::get(&url)
-                    .with_context(|| format!("Failed to download GeoIP database: {}", url))?
-                    .error_for_status()
-                    .with_context(|| format!("GeoIP DB URL returned error: {}", url))?
-                    .bytes()
-                    .context("Failed to read downloaded GeoIP database bytes")?;
-                Ok(bytes.to_vec())
-            })();
-            let _ = tx.send(result);
-        });
-        rx.recv()
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("GeoIP download thread terminated unexpectedly")))
+    fn download_bytes(url: &str) -> Result<Vec<u8>> {
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(120))
+            .user_agent("relay-app/1.0")
+            .build()
+            .context("Failed to build HTTP client")?;
+
+        let response = client
+            .get(url)
+            .send()
+            .with_context(|| format!("Failed to connect to {}", url))?
+            .error_for_status()
+            .with_context(|| format!("Server returned error for {}", url))?;
+
+        let bytes = response
+            .bytes()
+            .with_context(|| format!("Failed to read response body from {}", url))?;
+
+        Ok(bytes.to_vec())
+    }
+
+    fn download_with_fallback() -> Result<Vec<u8>> {
+        let primary = Self::primary_url();
+        let mut all_urls: Vec<String> = vec![primary.clone()];
+
+        if !std::env::var("RELAY_GEOIP_DB_URL").is_ok() {
+            for &u in GEOIP_DOWNLOAD_URLS.iter().skip(1) {
+                all_urls.push(u.to_string());
+            }
+        }
+
+        let mut last_err: Option<anyhow::Error> = None;
+        for url in &all_urls {
+            let url_owned = url.clone();
+            let url_log = url.clone();
+            let (tx, rx) = std::sync::mpsc::channel::<Result<Vec<u8>>>();
+            std::thread::spawn(move || {
+                let _ = tx.send(Self::download_bytes(&url_owned));
+            });
+
+            match rx.recv().unwrap_or_else(|_| Err(anyhow!("Download thread terminated unexpectedly"))) {
+                Ok(bytes) => {
+                    if bytes.len() < 512 {
+                        last_err = Some(anyhow!(
+                            "Downloaded file from {} is too small ({} bytes) — may be an LFS pointer or error page",
+                            url_log, bytes.len()
+                        ));
+                        continue;
+                    }
+
+                    let magic_pos = bytes
+                        .windows(MMDB_MAGIC.len())
+                        .rposition(|w| w == MMDB_MAGIC);
+                    if magic_pos.is_none() {
+                        last_err = Some(anyhow!(
+                            "File from {} does not appear to be a valid MaxMind database (magic bytes not found)",
+                            url_log
+                        ));
+                        continue;
+                    }
+
+                    return Ok(bytes);
+                }
+                Err(e) => {
+                    tracing::warn!("[plugin:geoip] Download from {} failed: {:#}", url_log, e);
+                    last_err = Some(e);
+                }
+            }
+        }
+
+        Err(last_err.unwrap_or_else(|| anyhow!("No download URLs available")))
     }
 }
 
@@ -80,24 +140,33 @@ impl RelayPlugin for GeoIpPlugin {
             )
         })?;
 
-        let url = Self::download_url();
+        tracing::info!("[plugin:geoip] Downloading GeoLite2 database...");
+
+        let bytes = Self::download_with_fallback()?;
+
         let db_path = Self::db_path(ctx);
-        tracing::info!("[plugin:geoip] Downloading GeoLite2 database from {}", url);
+        let tmp_path = db_path.with_extension("mmdb.tmp");
 
-        let bytes = Self::download_bytes_in_thread(&url)?;
-
-        let mut file = std::fs::File::create(&db_path).with_context(|| {
+        let mut file = std::fs::File::create(&tmp_path).with_context(|| {
             format!(
-                "Failed to create GeoIP database file on disk: {}",
-                db_path.display()
+                "Failed to create temporary file: {}",
+                tmp_path.display()
             )
         })?;
         file.write_all(&bytes)
             .context("Failed to write GeoIP database to disk")?;
         file.flush()
             .context("Failed to flush GeoIP database to disk")?;
+        drop(file);
 
-        tracing::info!("[plugin:geoip] Installed database at {}", db_path.display());
+        std::fs::rename(&tmp_path, &db_path).with_context(|| {
+            format!(
+                "Failed to move database into place: {}",
+                db_path.display()
+            )
+        })?;
+
+        tracing::info!("[plugin:geoip] Installed database at {} ({} bytes)", db_path.display(), bytes.len());
         Ok(())
     }
 
@@ -127,13 +196,6 @@ impl RelayPlugin for GeoIpPlugin {
     }
 
     fn settings_schema(&self) -> Option<Value> {
-        Some(serde_json::json!({
-            "type": "object",
-            "title": "GeoIP Database",
-            "description": "lookup_country API is coming soon in phase 2.",
-            "properties": {
-                "status": { "type": "string", "const": "coming_soon" }
-            }
-        }))
+        None
     }
 }

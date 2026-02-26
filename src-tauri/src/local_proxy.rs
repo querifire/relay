@@ -1,5 +1,5 @@
 use crate::proxy_chain;
-use crate::proxy_instance::{LogSink, ProxyStats};
+use crate::proxy_instance::{push_to_sink, LogSink, ProxyStats};
 use crate::proxy_type::{Proxy, ProxyProtocol};
 use crate::upstream;
 use anyhow::{anyhow, Result};

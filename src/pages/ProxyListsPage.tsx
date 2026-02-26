@@ -55,7 +55,7 @@ function parseInputLines(raw: string): { urls: string[]; proxies: string[] } {
   const urls: string[] = [];
   const proxies: string[] = [];
   for (const line of lines) {
-    if (/^https?:\/\
+    if (/^https?:\/\//.test(line)) {
       urls.push(line);
     } else {
       proxies.push(line);
@@ -117,9 +117,9 @@ function FormatGuideModal({ onClose }: { onClose: () => void }) {
             <p className="text-[0.75rem] text-foreground-muted leading-relaxed">
               You can mix proxy addresses and URL links in the same input — each
               line is parsed independently. Lines starting with{" "}
-              <code className="bg-surface-hover px-1 py-0.5 rounded-[0.25rem]">http:
-              or{" "}
-              <code className="bg-surface-hover px-1 py-0.5 rounded-[0.25rem]">https:
+              <code className="bg-surface-hover px-1 py-0.5 rounded-[0.25rem]">http://</code>
+              {" "}or{" "}
+              <code className="bg-surface-hover px-1 py-0.5 rounded-[0.25rem]">https://</code>
               are treated as remote list URLs; everything else is parsed as a
               proxy address.
             </p>

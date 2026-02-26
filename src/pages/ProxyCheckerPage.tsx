@@ -56,7 +56,7 @@ export default function ProxyCheckerPage() {
   const [copied, setCopied] = useState(false);
 
   const [logs, setLogs] = useState<LogEntry[]>([]);
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
   const unlistenRefs = useRef<UnlistenFn[]>([]);
 
   function pushLog(text: string, type: LogEntry["type"] = "info") {
@@ -64,8 +64,8 @@ export default function ProxyCheckerPage() {
   }
 
   useEffect(() => {
-    if (logs.length > 0) {
-      logEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (logs.length > 0 && logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
     }
   }, [logs]);
 
@@ -506,7 +506,7 @@ export default function ProxyCheckerPage() {
                 </button>
               )}
             </div>
-            <div className="flex-1 overflow-y-auto px-5 py-3 font-mono text-[0.75rem] leading-[1.7]">
+            <div ref={logContainerRef} className="flex-1 overflow-y-auto px-5 py-3 font-mono text-[0.75rem] leading-[1.7]">
               {logs.length === 0 && (
                 <span className="text-foreground-tertiary">
                   Waiting for check to start...
@@ -520,7 +520,6 @@ export default function ProxyCheckerPage() {
                   <span className={logColor[entry.type]}>{entry.text}</span>
                 </div>
               ))}
-              <div ref={logEndRef} />
             </div>
           </div>
         </section>

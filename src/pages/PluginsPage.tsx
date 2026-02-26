@@ -3,10 +3,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { Link } from "react-router-dom";
 import type { PluginInfo, PluginStatus, PluginUiInfo } from "../types";
 
-type PluginSchema = Record<string, unknown> | null;
-
 interface BusyState {
-  action: "install" | "uninstall" | "enable" | "disable";
+  action: "install" | "uninstall";
   progress: number;
 }
 
@@ -57,8 +55,6 @@ export default function PluginsPage() {
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<Record<string, BusyState>>({});
-  const [schemas, setSchemas] = useState<Record<string, PluginSchema>>({});
-  const [schemaLoading, setSchemaLoading] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
 
   const loadPlugins = useCallback(async () => {
@@ -91,12 +87,8 @@ export default function PluginsPage() {
       try {
         if (action === "install") {
           await invoke("install_plugin", { id: pluginId });
-        } else if (action === "uninstall") {
-          await invoke("uninstall_plugin", { id: pluginId });
-        } else if (action === "enable") {
-          await invoke("enable_plugin", { id: pluginId });
         } else {
-          await invoke("disable_plugin", { id: pluginId });
+          await invoke("uninstall_plugin", { id: pluginId });
         }
         setBusy((prev) => ({ ...prev, [pluginId]: { action, progress: 100 } }));
       } catch (err) {
@@ -122,19 +114,6 @@ export default function PluginsPage() {
     } catch (err) {
       console.error("Failed to open plugins folder:", err);
       setError(String(err));
-    }
-  };
-
-  const loadSchema = async (pluginId: string) => {
-    if (schemas[pluginId] || schemaLoading[pluginId]) return;
-    setSchemaLoading((prev) => ({ ...prev, [pluginId]: true }));
-    try {
-      const schema = await invoke<PluginSchema>("get_plugin_settings_schema", { id: pluginId });
-      setSchemas((prev) => ({ ...prev, [pluginId]: schema }));
-    } catch (err) {
-      console.error("Failed to get plugin schema:", err);
-    } finally {
-      setSchemaLoading((prev) => ({ ...prev, [pluginId]: false }));
     }
   };
 
@@ -238,43 +217,7 @@ export default function PluginsPage() {
                     </button>
                   )}
 
-                  {plugin.installed && !plugin.enabled && (
-                    <button
-                      type="button"
-                      onClick={() => runAction(plugin.id, "enable")}
-                      disabled={Boolean(pluginBusy)}
-                      className="h-8 px-3 rounded-button text-[0.75rem] font-medium bg-[#34C759]/20 text-[#34C759] border border-[#34C759]/50 disabled:opacity-50"
-                    >
-                      Enable
-                    </button>
-                  )}
-
-                  {plugin.enabled && (
-                    <button
-                      type="button"
-                      onClick={() => runAction(plugin.id, "disable")}
-                      disabled={Boolean(pluginBusy)}
-                      className="h-8 px-3 rounded-button text-[0.75rem] font-medium bg-[#FF9F0A]/20 text-[#FF9F0A] border border-[#FF9F0A]/50 disabled:opacity-50"
-                    >
-                      Disable
-                    </button>
-                  )}
-
-                  <button
-                    type="button"
-                    onClick={() => loadSchema(plugin.id)}
-                    disabled={schemaLoading[plugin.id]}
-                    className="h-8 px-3 rounded-button text-[0.75rem] font-medium bg-surface-hover border border-border disabled:opacity-50"
-                  >
-                    {schemaLoading[plugin.id] ? "Loading..." : "Settings"}
-                  </button>
                 </div>
-
-                {schemas[plugin.id] && (
-                  <pre className="mt-3 p-3 rounded-button bg-surface-hover border border-border text-[0.6875rem] text-foreground-muted overflow-auto">
-                    {JSON.stringify(schemas[plugin.id], null, 2)}
-                  </pre>
-                )}
               </article>
             );
           })}
