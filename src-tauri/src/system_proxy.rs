@@ -12,7 +12,9 @@ pub struct SystemProxyStatus {
 
 #[cfg(windows)]
 fn reg_command(args: &[&str]) -> Result<String> {
-    let output = Command::new("reg").args(args).output()?;
+    use std::os::windows::process::CommandExt;
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
+    let output = Command::new("reg").args(args).creation_flags(CREATE_NO_WINDOW).output()?;
     if !output.status.success() {
         return Err(anyhow!(
             "reg command failed: {}",

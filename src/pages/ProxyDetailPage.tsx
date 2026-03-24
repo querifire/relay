@@ -250,7 +250,9 @@ export default function ProxyDetailPage() {
     invoke<{ enabled: boolean; server: string | null }>("get_system_proxy_status")
       .then((s) => setSystemProxyActive(!!s.enabled && s.server === server))
       .catch(() => {});
-  }, [instance]);
+  // Only re-query when the instance identity, status, or endpoint changes — not on every stats tick.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instance?.id, instance?.status, instance?.bind_addr, instance?.port]);
 
   const handleToggleSystemProxy = async () => {
     if (!instance || systemProxyBusy) return;
