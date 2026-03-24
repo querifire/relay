@@ -17,6 +17,8 @@
     "core:window:allow-is-maximized",
     "core:event:allow-listen",
     "core:event:allow-unlisten",
-    "notification:default"
+    "notification:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

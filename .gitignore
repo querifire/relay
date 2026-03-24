@@ -17,4 +17,7 @@ README.md
 autoproxy_cache.json
 nssm.exe
 
+# Tauri signing keys (keep private key secret - add TAURI_SIGNING_PRIVATE_KEY to GitHub Secrets)
+.tauri-keys/*.key
+
 cmd

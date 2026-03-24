@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import { useSettings } from "../hooks/useSettings";
 import { enable as autostartEnable, disable as autostartDisable, isEnabled as autostartIsEnabled } from "@tauri-apps/plugin-autostart";
+import { check as checkUpdate } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import type { AppSettings, KillSwitchConfig as KillSwitchStatus, NotificationSettings, Profile, SaveProfileRequest } from "../types";
 import CustomSelect from "../components/CustomSelect";
 
@@ -98,6 +101,14 @@ export default function SettingsPage() {
   const [importSuccess, setImportSuccess] = useState(false);
   const importFileRef = useRef<HTMLInputElement>(null);
 
+  const [appVersion, setAppVersion] = useState<string>("");
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateAvailable, setUpdateAvailable] = useState<{ version: string; body: string | null | undefined } | null>(null);
+  const [updateInstalling, setUpdateInstalling] = useState(false);
+  const [updateProgress, setUpdateProgress] = useState<{ downloaded: number; total: number | null } | null>(null);
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [updateChecked, setUpdateChecked] = useState(false);
+
   useEffect(() => {
     if (settings) setForm({ ...settings });
   }, [settings]);
@@ -112,7 +123,56 @@ export default function SettingsPage() {
     invoke<KillSwitchStatus>("get_kill_switch_status").then(setKillSwitchStatus).catch(() => {});
     invoke<string>("get_tls_fingerprint_hash").then(setTlsHash).catch(() => {});
     invoke<Profile[]>("list_profiles").then(setProfiles).catch(() => {});
+    getVersion().then(setAppVersion).catch(() => {});
   }, []);
+
+  const handleCheckUpdate = async () => {
+    setUpdateChecking(true);
+    setUpdateError(null);
+    setUpdateAvailable(null);
+    setUpdateChecked(false);
+    try {
+      const update = await checkUpdate();
+      if (update) {
+        setUpdateAvailable({ version: update.version, body: update.body });
+      }
+      setUpdateChecked(true);
+    } catch (err) {
+      setUpdateError(String(err));
+    } finally {
+      setUpdateChecking(false);
+    }
+  };
+
+  const handleInstallUpdate = async () => {
+    if (!updateAvailable) return;
+    setUpdateInstalling(true);
+    setUpdateError(null);
+    setUpdateProgress(null);
+    try {
+      const update = await checkUpdate();
+      if (!update) {
+        setUpdateError("Update is no longer available. Try Check for updates again.");
+        setUpdateInstalling(false);
+        setUpdateAvailable(null);
+        return;
+      }
+      await update.downloadAndInstall((event) => {
+        if (event.event === "Started") {
+          setUpdateProgress({ downloaded: 0, total: event.data.contentLength ?? null });
+        } else if (event.event === "Progress") {
+          setUpdateProgress((prev) => ({
+            downloaded: (prev?.downloaded ?? 0) + event.data.chunkLength,
+            total: prev?.total ?? null,
+          }));
+        }
+      });
+      await relaunch();
+    } catch (err) {
+      setUpdateError(String(err));
+      setUpdateInstalling(false);
+    }
+  };
 
   const handleAutostartToggle = async () => {
     setAutostartLoading(true);
@@ -590,6 +650,89 @@ export default function SettingsPage() {
                 </div>
               ))}
             </div>
+          )}
+        </Card>
+      </div>
+
+      {}
+      <SectionLabel>Application</SectionLabel>
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-8">
+        <Card>
+          <div className="flex items-start justify-between gap-4">
+            <div className="min-w-0">
+              <CardTitle>Software Updates</CardTitle>
+              <CardDescription>
+                Check for new versions on GitHub Releases and install them in one click.
+                {appVersion && (
+                  <span className="block mt-1 font-mono text-[0.6875rem]">Current version: {appVersion}</span>
+                )}
+              </CardDescription>
+            </div>
+            <button
+              onClick={handleCheckUpdate}
+              disabled={updateChecking || updateInstalling}
+              className="flex-shrink-0 h-9 px-4 rounded-button text-[0.8125rem] font-medium border border-border hover:bg-surface-hover disabled:opacity-50 transition-all"
+            >
+              {updateChecking ? "Checking…" : "Check for updates"}
+            </button>
+          </div>
+
+          {updateAvailable && (
+            <div className="mt-4 pt-4 border-t border-border">
+              <p className="text-[0.8125rem] font-medium text-[#30D158]">
+                Version {updateAvailable.version} is available
+              </p>
+              {updateAvailable.body && (
+                <p className="text-[0.75rem] text-foreground-muted mt-1 whitespace-pre-wrap line-clamp-4">
+                  {updateAvailable.body}
+                </p>
+              )}
+              {updateInstalling && updateProgress && (
+                <div className="mt-3">
+                  <div className="flex justify-between text-[0.6875rem] text-foreground-muted mb-1">
+                    <span>Downloading…</span>
+                    {updateProgress.total && (
+                      <span>
+                        {Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%
+                      </span>
+                    )}
+                  </div>
+                  <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-foreground rounded-full transition-all duration-200"
+                      style={{
+                        width: updateProgress.total
+                          ? `${Math.round((updateProgress.downloaded / updateProgress.total) * 100)}%`
+                          : "100%",
+                      }}
+                    />
+                  </div>
+                </div>
+              )}
+              {!updateInstalling && (
+                <button
+                  onClick={handleInstallUpdate}
+                  className="mt-3 h-9 px-5 rounded-button text-[0.8125rem] font-medium bg-foreground text-surface hover:opacity-80 transition-all"
+                >
+                  Install update
+                </button>
+              )}
+              {updateInstalling && !updateProgress && (
+                <p className="mt-2 text-[0.75rem] text-foreground-muted">Preparing download…</p>
+              )}
+            </div>
+          )}
+
+          {updateChecked && !updateAvailable && !updateInstalling && (
+            <p className="mt-3 text-[0.75rem] text-foreground-muted">
+              You are on the latest version.
+            </p>
+          )}
+
+          {updateError && (
+            <p className="mt-3 text-[0.6875rem] text-[#FF3B30] break-all">
+              Error: {updateError}
+            </p>
           )}
         </Card>
       </div>
