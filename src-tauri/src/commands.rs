@@ -10,7 +10,7 @@ use crate::plugin_manager::PluginManager;
 use crate::plugin_sdk::PluginInfo;
 use crate::profiles::{self, Profile, SaveProfileRequest};
 use crate::proxy_chain::ProxyChainConfig;
-use crate::proxy_instance::{push_to_sink, ProxyInstanceInfo, ProxyStatusInfo};
+use crate::proxy_instance::{push_to_sink, ConnectionLogEntry, ProxyInstanceInfo, ProxyStatusInfo};
 use crate::proxy_lists::{self, ProxyListConfig};
 use crate::proxy_manager::ProxyManager;
 use crate::proxy_type::{Proxy, ProxyMode, ProxyProtocol};
@@ -22,6 +22,7 @@ use crate::system_proxy;
 use crate::tls_fingerprint;
 use crate::{proxy_cache, sources, speed_test};
 use serde::Serialize;
+use std::collections::HashMap;
 use tauri::State;
 use tokio::sync::Mutex;
 use uuid::Uuid;
@@ -33,6 +34,13 @@ pub struct KillSwitchStateWrapper(pub KillSwitchState);
 
 fn map_err(e: impl std::fmt::Display) -> String {
     e.to_string()
+}
+
+async fn enrich_upstream_country(mut info: ProxyInstanceInfo) -> ProxyInstanceInfo {
+    if let Some(ref u) = info.upstream {
+        info.upstream_country = geoip::lookup_host_country(&u.host).await;
+    }
+    info
 }
 
 fn validate_tor_binary_path(path: &str) -> Result<(), String> {
@@ -69,7 +77,13 @@ pub async fn get_instances(
     manager: State<'_, ProxyManagerState>,
 ) -> Result<Vec<ProxyInstanceInfo>, String> {
     let mgr = manager.0.lock().await;
-    Ok(mgr.get_all())
+    let list = mgr.get_all();
+    drop(mgr);
+    let mut out = Vec::with_capacity(list.len());
+    for info in list {
+        out.push(enrich_upstream_country(info).await);
+    }
+    Ok(out)
 }
 
 #[tauri::command]
@@ -79,8 +93,11 @@ pub async fn get_instance(
 ) -> Result<ProxyInstanceInfo, String> {
     let uuid = Uuid::parse_str(&id).map_err(map_err)?;
     let mgr = manager.0.lock().await;
-    mgr.get_instance(uuid)
-        .ok_or_else(|| format!("Instance {} not found", id))
+    let info = mgr
+        .get_instance(uuid)
+        .ok_or_else(|| format!("Instance {} not found", id))?;
+    drop(mgr);
+    Ok(enrich_upstream_country(info).await)
 }
 
 #[tauri::command]
@@ -479,6 +496,88 @@ pub async fn get_instance_logs(
     let uuid = Uuid::parse_str(&id).map_err(map_err)?;
     let mgr = manager.0.lock().await;
     mgr.get_instance_logs(uuid).map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn get_connection_logs(
+    manager: State<'_, ProxyManagerState>,
+    id: String,
+    limit: Option<usize>,
+) -> Result<Vec<ConnectionLogEntry>, String> {
+    let uuid = Uuid::parse_str(&id).map_err(map_err)?;
+    let mgr = manager.0.lock().await;
+    mgr.get_connection_logs(uuid, limit).map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn clear_connection_logs(
+    manager: State<'_, ProxyManagerState>,
+    id: String,
+) -> Result<(), String> {
+    let uuid = Uuid::parse_str(&id).map_err(map_err)?;
+    let mgr = manager.0.lock().await;
+    mgr.clear_connection_logs(uuid).map_err(map_err)
+}
+
+#[tauri::command]
+pub async fn get_instance_proxy_countries(
+    manager: State<'_, ProxyManagerState>,
+    id: String,
+) -> Result<HashMap<String, Option<CountryInfoDto>>, String> {
+    let uuid = Uuid::parse_str(&id).map_err(map_err)?;
+    let protocol = {
+        let mgr = manager.0.lock().await;
+        let inst = mgr
+            .get_instance(uuid)
+            .ok_or_else(|| format!("Instance {} not found", id))?;
+        inst.local_protocol.clone()
+    };
+
+    let cached = proxy_cache::load_cache().await.unwrap_or_default();
+    let filtered: Vec<Proxy> = cached
+        .into_iter()
+        .filter(|p| p.protocol == protocol)
+        .collect();
+
+    let mut map = HashMap::new();
+    for p in filtered {
+        let key = format!("{}:{}", p.host, p.port);
+        let country = geoip::lookup_host_country(&p.host).await;
+        map.insert(
+            key,
+            country.map(|c| CountryInfoDto {
+                country_code: c.country_code,
+                country_name: c.country_name,
+            }),
+        );
+    }
+    Ok(map)
+}
+
+#[tauri::command]
+pub async fn filter_proxies_by_countries(
+    manager: State<'_, ProxyManagerState>,
+    id: String,
+    country_codes: Vec<String>,
+) -> Result<Vec<Proxy>, String> {
+    let uuid = Uuid::parse_str(&id).map_err(map_err)?;
+    let protocol = {
+        let mgr = manager.0.lock().await;
+        let inst = mgr
+            .get_instance(uuid)
+            .ok_or_else(|| format!("Instance {} not found", id))?;
+        inst.local_protocol.clone()
+    };
+
+    let cached = proxy_cache::load_cache().await.unwrap_or_default();
+    let filtered_proxies: Vec<Proxy> = cached
+        .into_iter()
+        .filter(|p| p.protocol == protocol)
+        .collect();
+
+    Ok(
+        geoip::filter_plain_proxies_by_countries(filtered_proxies, &country_codes).await,
+    )
 }
 
 #[tauri::command]

@@ -31,6 +31,17 @@ export interface ProxyStatsInfo {
   last_request_latency_ms: number;
 }
 
+export interface ConnectionLogEntry {
+  timestamp_ms: number;
+  target_host: string;
+  protocol: string;
+  bytes_sent: number;
+  bytes_received: number;
+  duration_ms: number;
+  success: boolean;
+  country_code?: string;
+}
+
 export interface ProxyInstanceInfo {
   id: string;
   name: string;
@@ -54,6 +65,9 @@ export interface ProxyInstanceInfo {
   anonymity_level: AnonymityLevel | null;
   
   proxy_chain: ProxyChainConfig | null;
+
+  /** GeoIP for current upstream (from backend when available). */
+  upstream_country?: CountryInfo | null;
 }
 
 export interface ProxyCacheStats {

@@ -1,5 +1,7 @@
 use crate::proxy_chain;
-use crate::proxy_instance::{push_to_sink, LogSink, ProxyStats};
+use crate::proxy_instance::{
+    push_connection_entry, push_to_sink, ConnectionLogEntry, ConnectionSink, LogSink, ProxyStats,
+};
 use crate::proxy_type::{Proxy, ProxyProtocol};
 use crate::upstream;
 use anyhow::{anyhow, Result};
@@ -8,9 +10,11 @@ use hmac::{Hmac, Mac};
 use parking_lot::RwLock;
 use sha2::Sha256;
 use std::collections::HashMap;
+use std::net::IpAddr;
+use std::str::FromStr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -19,6 +23,16 @@ use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
 
 type HmacSha256 = Hmac<Sha256>;
+
+fn country_for_target(target: &str) -> Option<String> {
+    let host = target
+        .rsplit_once(':')
+        .map(|(h, _)| h)
+        .unwrap_or(target);
+    IpAddr::from_str(host.trim())
+        .ok()
+        .and_then(|ip| crate::geoip::lookup_country(&ip.to_string()).map(|c| c.country_code))
+}
 
 static AUTH_HMAC_KEY: OnceLock<[u8; 32]> = OnceLock::new();
 
@@ -108,6 +122,7 @@ pub fn start_local_server(
     upstream_proxy: Arc<RwLock<Proxy>>,
     cancel_token: CancellationToken,
     log_sink: LogSink,
+    connection_sink: ConnectionSink,
     auth: AuthCredentials,
     stats: Arc<ProxyStats>,
     chain: ChainProxies,
@@ -118,7 +133,19 @@ pub fn start_local_server(
         ProxyProtocol::Http | ProxyProtocol::Https => {
             let limiter = rate_limiter.clone();
             tokio::spawn(async move {
-                run_http_proxy_server(bind_addr, upstream_proxy, cancel_token, log_sink, auth, stats, chain, conn_limit, limiter).await
+                run_http_proxy_server(
+                    bind_addr,
+                    upstream_proxy,
+                    cancel_token,
+                    log_sink,
+                    connection_sink,
+                    auth,
+                    stats,
+                    chain,
+                    conn_limit,
+                    limiter,
+                )
+                .await
             })
         }
         ProxyProtocol::Socks4 => {
@@ -135,16 +162,39 @@ pub fn start_local_server(
                 );
             }
             tokio::spawn(async move {
-                run_socks4_server(bind_addr, upstream_proxy, cancel_token, log_sink, stats, chain, conn_limit).await
+                run_socks4_server(
+                    bind_addr,
+                    upstream_proxy,
+                    cancel_token,
+                    log_sink,
+                    connection_sink,
+                    stats,
+                    chain,
+                    conn_limit,
+                )
+                .await
             })
         }
         ProxyProtocol::Socks5 => {
             let limiter = rate_limiter.clone();
             tokio::spawn(async move {
-                run_socks5_server(bind_addr, upstream_proxy, cancel_token, log_sink, auth, stats, chain, conn_limit, limiter).await
+                run_socks5_server(
+                    bind_addr,
+                    upstream_proxy,
+                    cancel_token,
+                    log_sink,
+                    connection_sink,
+                    auth,
+                    stats,
+                    chain,
+                    conn_limit,
+                    limiter,
+                )
+                .await
             })
         }
         ProxyProtocol::Tor => {
+            drop(connection_sink);
             tokio::spawn(async move {
                 Err(anyhow!("Tor local server is not yet implemented"))
             })
@@ -157,6 +207,7 @@ async fn run_http_proxy_server(
     upstream_proxy: Arc<RwLock<Proxy>>,
     cancel_token: CancellationToken,
     log_sink: LogSink,
+    connection_sink: ConnectionSink,
     auth: AuthCredentials,
     stats: Arc<ProxyStats>,
     chain: ChainProxies,
@@ -177,6 +228,7 @@ async fn run_http_proxy_server(
                     Ok((client_stream, client_addr)) => {
                         let upstream = upstream_proxy.clone();
                         let sink = log_sink.clone();
+                        let conn_sink = connection_sink.clone();
                         let auth = auth.clone();
                         let stats = stats.clone();
                         let chain = chain.clone();
@@ -189,7 +241,19 @@ async fn run_http_proxy_server(
                                 Ok(g) => g,
                                 Err(_) => return,
                             };
-                            if let Err(e) = handle_http_client(client_stream, addr_str, upstream, sink, auth, stats, chain, limiter).await {
+                            if let Err(e) = handle_http_client(
+                                client_stream,
+                                addr_str,
+                                upstream,
+                                sink,
+                                conn_sink,
+                                auth,
+                                stats,
+                                chain,
+                                limiter,
+                            )
+                            .await
+                            {
                                 tracing::debug!("Ошибка HTTP клиента {}: {}", addr_str_log, e);
                             }
                         });
@@ -209,7 +273,8 @@ async fn handle_http_client(
     mut client_stream: TcpStream,
     client_addr: String,
     upstream_proxy: Arc<RwLock<Proxy>>,
-    log_sink: LogSink,
+    _log_sink: LogSink,
+    connection_sink: ConnectionSink,
     auth: AuthCredentials,
     stats: Arc<ProxyStats>,
     chain: ChainProxies,
@@ -289,23 +354,20 @@ async fn handle_http_client(
     if method == "CONNECT" {
         let target = parts[1];
         let (target_host, target_port) = parse_host_port(target, 443)?;
-
-        {
-            let msg = format!("CONNECT {}:{}", target_host, target_port);
-            let mut logs = log_sink.lock();
-            logs.push_back(msg);
-            while logs.len() > 500 {
-                logs.pop_front();
-            }
-        }
+        let target_str = format!("{}:{}", target_host, target_port);
+        let ts_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let country = country_for_target(&target_str);
 
         let current_proxy = upstream_proxy.read().clone();
         stats.total_requests.fetch_add(1, Ordering::Relaxed);
-        let connect_start = std::time::Instant::now();
+        let flow_start = Instant::now();
 
         match connect_upstream(&current_proxy, &chain, &target_host, target_port).await {
             Ok(mut upstream_stream) => {
-                let latency_ms = connect_start.elapsed().as_millis() as u64;
+                let latency_ms = flow_start.elapsed().as_millis() as u64;
                 stats.successful_requests.fetch_add(1, Ordering::Relaxed);
                 stats.total_latency_ms.fetch_add(latency_ms, Ordering::Relaxed);
                 stats.last_request_latency_ms.store(latency_ms, Ordering::Relaxed);
@@ -319,43 +381,59 @@ async fn handle_http_client(
                 let client_to_upstream = tokio::io::copy(&mut client_read, &mut upstream_write);
                 let upstream_to_client = tokio::io::copy(&mut upstream_read, &mut client_write);
 
-                tokio::select! {
-                    r = client_to_upstream => {
-                        if let Ok(bytes) = r { stats.total_bytes.fetch_add(bytes, Ordering::Relaxed); }
-                    },
-                    r = upstream_to_client => {
-                        if let Ok(bytes) = r { stats.total_bytes.fetch_add(bytes, Ordering::Relaxed); }
-                    },
-                }
+                let (cu, uc) = tokio::join!(client_to_upstream, upstream_to_client);
+                let bytes_sent = cu.unwrap_or(0);
+                let bytes_received = uc.unwrap_or(0);
+                stats
+                    .total_bytes
+                    .fetch_add(bytes_sent + bytes_received, Ordering::Relaxed);
+
+                push_connection_entry(&connection_sink, ConnectionLogEntry {
+                    timestamp_ms: ts_ms,
+                    target_host: target_str,
+                    protocol: "HTTPS".to_string(),
+                    bytes_sent,
+                    bytes_received,
+                    duration_ms: flow_start.elapsed().as_millis() as u64,
+                    success: true,
+                    country_code: country,
+                });
 
                 Ok(())
             }
             Err(e) => {
                 let response = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
                 client_stream.write_all(response.as_bytes()).await?;
+                push_connection_entry(&connection_sink, ConnectionLogEntry {
+                    timestamp_ms: ts_ms,
+                    target_host: target_str.clone(),
+                    protocol: "HTTPS".to_string(),
+                    bytes_sent: 0,
+                    bytes_received: 0,
+                    duration_ms: flow_start.elapsed().as_millis() as u64,
+                    success: false,
+                    country_code: country,
+                });
                 Err(e)
             }
         }
     } else {
         let url = parts[1];
         let (target_host, target_port, path) = parse_http_url(url)?;
-
-        {
-            let msg = format!("{} {}:{}{}", method, target_host, target_port, path);
-            let mut logs = log_sink.lock();
-            logs.push_back(msg);
-            while logs.len() > 500 {
-                logs.pop_front();
-            }
-        }
+        let target_str = format!("{}:{}{}", target_host, target_port, path);
+        let ts_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        let country = country_for_target(&format!("{}:{}", target_host, target_port));
 
         let current_proxy = upstream_proxy.read().clone();
         stats.total_requests.fetch_add(1, Ordering::Relaxed);
-        let connect_start = std::time::Instant::now();
+        let flow_start = Instant::now();
 
         match connect_upstream(&current_proxy, &chain, &target_host, target_port).await {
             Ok(mut upstream_stream) => {
-                let latency_ms = connect_start.elapsed().as_millis() as u64;
+                let latency_ms = flow_start.elapsed().as_millis() as u64;
                 stats.successful_requests.fetch_add(1, Ordering::Relaxed);
                 stats.total_latency_ms.fetch_add(latency_ms, Ordering::Relaxed);
                 stats.last_request_latency_ms.store(latency_ms, Ordering::Relaxed);
@@ -390,20 +468,39 @@ async fn handle_http_client(
                 let client_to_upstream = tokio::io::copy(&mut client_read, &mut upstream_write);
                 let upstream_to_client = tokio::io::copy(&mut upstream_read, &mut client_write);
 
-                tokio::select! {
-                    r = client_to_upstream => {
-                        if let Ok(bytes) = r { stats.total_bytes.fetch_add(bytes, Ordering::Relaxed); }
-                    },
-                    r = upstream_to_client => {
-                        if let Ok(bytes) = r { stats.total_bytes.fetch_add(bytes, Ordering::Relaxed); }
-                    },
-                }
+                let (cu, uc) = tokio::join!(client_to_upstream, upstream_to_client);
+                let bytes_sent = cu.unwrap_or(0);
+                let bytes_received = uc.unwrap_or(0);
+                stats
+                    .total_bytes
+                    .fetch_add(bytes_sent + bytes_received, Ordering::Relaxed);
+
+                push_connection_entry(&connection_sink, ConnectionLogEntry {
+                    timestamp_ms: ts_ms,
+                    target_host: target_str,
+                    protocol: "HTTP".to_string(),
+                    bytes_sent,
+                    bytes_received,
+                    duration_ms: flow_start.elapsed().as_millis() as u64,
+                    success: true,
+                    country_code: country,
+                });
 
                 Ok(())
             }
             Err(e) => {
                 let response = "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n";
                 client_stream.write_all(response.as_bytes()).await?;
+                push_connection_entry(&connection_sink, ConnectionLogEntry {
+                    timestamp_ms: ts_ms,
+                    target_host: target_str.clone(),
+                    protocol: "HTTP".to_string(),
+                    bytes_sent: 0,
+                    bytes_received: 0,
+                    duration_ms: flow_start.elapsed().as_millis() as u64,
+                    success: false,
+                    country_code: country,
+                });
                 Err(e)
             }
         }
@@ -446,6 +543,7 @@ async fn run_socks4_server(
     upstream_proxy: Arc<RwLock<Proxy>>,
     cancel_token: CancellationToken,
     log_sink: LogSink,
+    connection_sink: ConnectionSink,
     stats: Arc<ProxyStats>,
     chain: ChainProxies,
     conn_limit: Arc<Semaphore>,
@@ -464,6 +562,7 @@ async fn run_socks4_server(
                     Ok((client_stream, client_addr)) => {
                         let upstream = upstream_proxy.clone();
                         let sink = log_sink.clone();
+                        let conn_sink = connection_sink.clone();
                         let stats = stats.clone();
                         let chain = chain.clone();
                         let permit = conn_limit.clone();
@@ -472,7 +571,9 @@ async fn run_socks4_server(
                                 Ok(g) => g,
                                 Err(_) => return,
                             };
-                            if let Err(e) = handle_socks4_client(client_stream, upstream, sink, stats, chain).await {
+                            if let Err(e) =
+                                handle_socks4_client(client_stream, upstream, sink, conn_sink, stats, chain).await
+                            {
                                 tracing::debug!("Ошибка SOCKS4 клиента {}: {}", client_addr, e);
                             }
                         });
@@ -553,7 +654,8 @@ async fn socks4_handshake(
 async fn handle_socks4_client(
     mut client_stream: TcpStream,
     upstream_proxy: Arc<RwLock<Proxy>>,
-    log_sink: LogSink,
+    _log_sink: LogSink,
+    connection_sink: ConnectionSink,
     stats: Arc<ProxyStats>,
     chain: ChainProxies,
 ) -> Result<()> {
@@ -563,19 +665,16 @@ async fn handle_socks4_client(
             .map_err(|_| anyhow!("SOCKS4 handshake timeout"))??;
 
     let dst_ip = [header[4], header[5], header[6], header[7]];
-
-    {
-        let msg = format!("CONNECT {}:{}", target_host, target_port);
-        let mut logs = log_sink.lock();
-        logs.push_back(msg);
-        while logs.len() > 500 {
-            logs.pop_front();
-        }
-    }
+    let target_str = format!("{}:{}", target_host, target_port);
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let country = country_for_target(&target_str);
 
     let current_proxy = upstream_proxy.read().clone();
     stats.total_requests.fetch_add(1, Ordering::Relaxed);
-    let connect_start = std::time::Instant::now();
+    let flow_start = Instant::now();
 
     tracing::debug!(
         "SOCKS4 {} -> {}:{}",
@@ -586,7 +685,7 @@ async fn handle_socks4_client(
 
     match connect_upstream(&current_proxy, &chain, &target_host, target_port).await {
         Ok(mut upstream_stream) => {
-            let latency_ms = connect_start.elapsed().as_millis() as u64;
+            let latency_ms = flow_start.elapsed().as_millis() as u64;
             stats.successful_requests.fetch_add(1, Ordering::Relaxed);
             stats.total_latency_ms.fetch_add(latency_ms, Ordering::Relaxed);
             stats.last_request_latency_ms.store(latency_ms, Ordering::Relaxed);
@@ -600,20 +699,39 @@ async fn handle_socks4_client(
             let client_to_upstream = tokio::io::copy(&mut client_read, &mut upstream_write);
             let upstream_to_client = tokio::io::copy(&mut upstream_read, &mut client_write);
 
-            tokio::select! {
-                r = client_to_upstream => {
-                    if let Ok(bytes) = r { stats.total_bytes.fetch_add(bytes, Ordering::Relaxed); }
-                },
-                r = upstream_to_client => {
-                    if let Ok(bytes) = r { stats.total_bytes.fetch_add(bytes, Ordering::Relaxed); }
-                },
-            }
+            let (cu, uc) = tokio::join!(client_to_upstream, upstream_to_client);
+            let bytes_sent = cu.unwrap_or(0);
+            let bytes_received = uc.unwrap_or(0);
+            stats
+                .total_bytes
+                .fetch_add(bytes_sent + bytes_received, Ordering::Relaxed);
+
+            push_connection_entry(&connection_sink, ConnectionLogEntry {
+                timestamp_ms: ts_ms,
+                target_host: target_str,
+                protocol: "SOCKS4".to_string(),
+                bytes_sent,
+                bytes_received,
+                duration_ms: flow_start.elapsed().as_millis() as u64,
+                success: true,
+                country_code: country,
+            });
 
             Ok(())
         }
         Err(e) => {
             let reply = [0x00, 0x5B, 0, 0, 0, 0, 0, 0];
             client_stream.write_all(&reply).await?;
+            push_connection_entry(&connection_sink, ConnectionLogEntry {
+                timestamp_ms: ts_ms,
+                target_host: target_str.clone(),
+                protocol: "SOCKS4".to_string(),
+                bytes_sent: 0,
+                bytes_received: 0,
+                duration_ms: flow_start.elapsed().as_millis() as u64,
+                success: false,
+                country_code: country,
+            });
             Err(e)
         }
     }
@@ -624,6 +742,7 @@ async fn run_socks5_server(
     upstream_proxy: Arc<RwLock<Proxy>>,
     cancel_token: CancellationToken,
     log_sink: LogSink,
+    connection_sink: ConnectionSink,
     auth: AuthCredentials,
     stats: Arc<ProxyStats>,
     chain: ChainProxies,
@@ -644,6 +763,7 @@ async fn run_socks5_server(
                     Ok((client_stream, client_addr)) => {
                         let upstream = upstream_proxy.clone();
                         let sink = log_sink.clone();
+                        let conn_sink = connection_sink.clone();
                         let auth = auth.clone();
                         let stats = stats.clone();
                         let chain = chain.clone();
@@ -654,7 +774,18 @@ async fn run_socks5_server(
                                 Ok(g) => g,
                                 Err(_) => return,
                             };
-                            if let Err(e) = handle_socks5_client(client_stream, upstream, sink, auth, stats, chain, limiter).await {
+                            if let Err(e) = handle_socks5_client(
+                                client_stream,
+                                upstream,
+                                sink,
+                                conn_sink,
+                                auth,
+                                stats,
+                                chain,
+                                limiter,
+                            )
+                            .await
+                            {
                                 tracing::debug!("Ошибка SOCKS5 клиента {}: {}", client_addr, e);
                             }
                         });
@@ -796,7 +927,8 @@ async fn socks5_handshake(
 async fn handle_socks5_client(
     mut client_stream: TcpStream,
     upstream_proxy: Arc<RwLock<Proxy>>,
-    log_sink: LogSink,
+    _log_sink: LogSink,
+    connection_sink: ConnectionSink,
     auth: AuthCredentials,
     stats: Arc<ProxyStats>,
     chain: ChainProxies,
@@ -811,18 +943,16 @@ async fn handle_socks5_client(
     .await
     .map_err(|_| anyhow!("SOCKS5 handshake timeout"))??;
 
-    {
-        let msg = format!("CONNECT {}:{}", target_host, target_port);
-        let mut logs = log_sink.lock();
-        logs.push_back(msg);
-        while logs.len() > 500 {
-            logs.pop_front();
-        }
-    }
+    let target_str = format!("{}:{}", target_host, target_port);
+    let ts_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let country = country_for_target(&target_str);
 
     let current_proxy = upstream_proxy.read().clone();
     stats.total_requests.fetch_add(1, Ordering::Relaxed);
-    let connect_start = std::time::Instant::now();
+    let flow_start = Instant::now();
 
     tracing::debug!(
         "SOCKS5 {} -> {}:{}",
@@ -833,7 +963,7 @@ async fn handle_socks5_client(
 
     match connect_upstream(&current_proxy, &chain, &target_host, target_port).await {
         Ok(mut upstream_stream) => {
-            let latency_ms = connect_start.elapsed().as_millis() as u64;
+            let latency_ms = flow_start.elapsed().as_millis() as u64;
             stats.successful_requests.fetch_add(1, Ordering::Relaxed);
             stats.total_latency_ms.fetch_add(latency_ms, Ordering::Relaxed);
             stats.last_request_latency_ms.store(latency_ms, Ordering::Relaxed);
@@ -848,14 +978,23 @@ async fn handle_socks5_client(
             let client_to_upstream = tokio::io::copy(&mut client_read, &mut upstream_write);
             let upstream_to_client = tokio::io::copy(&mut upstream_read, &mut client_write);
 
-            tokio::select! {
-                r = client_to_upstream => {
-                    if let Ok(bytes) = r { stats.total_bytes.fetch_add(bytes, Ordering::Relaxed); }
-                },
-                r = upstream_to_client => {
-                    if let Ok(bytes) = r { stats.total_bytes.fetch_add(bytes, Ordering::Relaxed); }
-                },
-            }
+            let (cu, uc) = tokio::join!(client_to_upstream, upstream_to_client);
+            let bytes_sent = cu.unwrap_or(0);
+            let bytes_received = uc.unwrap_or(0);
+            stats
+                .total_bytes
+                .fetch_add(bytes_sent + bytes_received, Ordering::Relaxed);
+
+            push_connection_entry(&connection_sink, ConnectionLogEntry {
+                timestamp_ms: ts_ms,
+                target_host: target_str,
+                protocol: "SOCKS5".to_string(),
+                bytes_sent,
+                bytes_received,
+                duration_ms: flow_start.elapsed().as_millis() as u64,
+                success: true,
+                country_code: country,
+            });
 
             Ok(())
         }
@@ -863,6 +1002,16 @@ async fn handle_socks5_client(
             client_stream
                 .write_all(&[0x05, 0x05, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
                 .await?;
+            push_connection_entry(&connection_sink, ConnectionLogEntry {
+                timestamp_ms: ts_ms,
+                target_host: target_str.clone(),
+                protocol: "SOCKS5".to_string(),
+                bytes_sent: 0,
+                bytes_received: 0,
+                duration_ms: flow_start.elapsed().as_millis() as u64,
+                success: false,
+                country_code: country,
+            });
             Err(e)
         }
     }

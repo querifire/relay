@@ -78,6 +78,9 @@ function SectionLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
+/** Vite dev (`tauri dev`): updater still calls GitHub; manifest/install paths differ from a real bundle — hide checks to avoid confusing errors. */
+const VITE_DEV = import.meta.env.DEV;
+
 export default function SettingsPage() {
   const { settings, loading, save } = useSettings();
   const [form, setForm] = useState<AppSettings | null>(null);
@@ -127,6 +130,7 @@ export default function SettingsPage() {
   }, []);
 
   const handleCheckUpdate = async () => {
+    if (VITE_DEV) return;
     setUpdateChecking(true);
     setUpdateError(null);
     setUpdateAvailable(null);
@@ -145,7 +149,7 @@ export default function SettingsPage() {
   };
 
   const handleInstallUpdate = async () => {
-    if (!updateAvailable) return;
+    if (VITE_DEV || !updateAvailable) return;
     setUpdateInstalling(true);
     setUpdateError(null);
     setUpdateProgress(null);
@@ -666,11 +670,17 @@ export default function SettingsPage() {
                 {appVersion && (
                   <span className="block mt-1 font-mono text-[0.6875rem]">Current version: {appVersion}</span>
                 )}
+                {VITE_DEV && (
+                  <span className="block mt-2 text-[#FF9F0A]">
+                    Development mode: use an installed release build to check and install updates. Here the updater can
+                    hit GitHub but the manifest may not match this run (e.g. missing windows-x86_64).
+                  </span>
+                )}
               </CardDescription>
             </div>
             <button
               onClick={handleCheckUpdate}
-              disabled={updateChecking || updateInstalling}
+              disabled={VITE_DEV || updateChecking || updateInstalling}
               className="flex-shrink-0 h-9 px-4 rounded-button text-[0.8125rem] font-medium border border-border hover:bg-surface-hover disabled:opacity-50 transition-all"
             >
               {updateChecking ? "Checking…" : "Check for updates"}
@@ -712,7 +722,8 @@ export default function SettingsPage() {
               {!updateInstalling && (
                 <button
                   onClick={handleInstallUpdate}
-                  className="mt-3 h-9 px-5 rounded-button text-[0.8125rem] font-medium bg-foreground text-surface hover:opacity-80 transition-all"
+                  disabled={VITE_DEV}
+                  className="mt-3 h-9 px-5 rounded-button text-[0.8125rem] font-medium bg-foreground text-surface hover:opacity-80 transition-all disabled:opacity-50"
                 >
                   Install update
                 </button>
@@ -723,7 +734,7 @@ export default function SettingsPage() {
             </div>
           )}
 
-          {updateChecked && !updateAvailable && !updateInstalling && (
+          {updateChecked && !updateAvailable && !updateInstalling && !VITE_DEV && (
             <p className="mt-3 text-[0.75rem] text-foreground-muted">
               You are on the latest version.
             </p>

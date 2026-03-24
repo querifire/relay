@@ -2,7 +2,8 @@ use crate::local_proxy;
 use crate::proxy_cache;
 use crate::proxy_chain::ProxyChainConfig;
 use crate::proxy_instance::{
-    push_to_sink, LogSink, ProxyInstance, ProxyInstanceInfo, ProxyStats, ProxyStatus, SavedInstance,
+    push_to_sink, ConnectionLogEntry, LogSink, ProxyInstance, ProxyInstanceInfo, ProxyStats,
+    ProxyStatus, SavedInstance,
 };
 use crate::proxy_lists::{self, ProxyListConfig};
 use crate::proxy_type::{Proxy, ProxyMode, ProxyProtocol};
@@ -254,6 +255,7 @@ impl ProxyManager {
         let listen_addr = format!("{}:{}", instance.bind_addr, instance.port);
         let upstream_arc: Arc<RwLock<Proxy>> = Arc::new(RwLock::new(upstream_proxy.clone()));
         let log_sink = instance.logs.clone();
+        let connection_sink = instance.connection_logs.clone();
         let stats = instance.stats.clone();
 
         instance.push_log(format!(
@@ -290,6 +292,7 @@ impl ProxyManager {
             upstream_arc.clone(),
             token,
             log_sink.clone(),
+            connection_sink,
             auth,
             stats,
             chain,
@@ -498,6 +501,27 @@ impl ProxyManager {
             .get(&id)
             .ok_or_else(|| anyhow!("Instance {} not found", id))?;
         Ok(instance.get_logs())
+    }
+
+    pub fn get_connection_logs(
+        &self,
+        id: Uuid,
+        limit: Option<usize>,
+    ) -> Result<Vec<ConnectionLogEntry>> {
+        let instance = self
+            .instances
+            .get(&id)
+            .ok_or_else(|| anyhow!("Instance {} not found", id))?;
+        Ok(instance.get_connection_logs(limit))
+    }
+
+    pub fn clear_connection_logs(&self, id: Uuid) -> Result<()> {
+        let instance = self
+            .instances
+            .get(&id)
+            .ok_or_else(|| anyhow!("Instance {} not found", id))?;
+        instance.clear_connection_logs();
+        Ok(())
     }
 
     pub fn get_auto_start_ids(&self) -> Vec<Uuid> {

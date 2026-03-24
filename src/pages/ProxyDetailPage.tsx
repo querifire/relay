@@ -2,50 +2,21 @@ import { useState, useEffect, useMemo } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { useProxies } from "../contexts/ProxyContext";
-import { detectCountryFlag, getInitials } from "../utils/countryFlags";
+import { codeToFlag, detectCountryFlag, getInitials } from "../utils/countryFlags";
 import { fetchProxyLists } from "../hooks/useProxyLists";
-import type { ProxyListConfig } from "../types";
+import type { ConnectionLogEntry, ProxyListConfig } from "../types";
 import CustomSelect from "../components/CustomSelect";
 
 const LATENCY_BAR_COUNT = 17;
 
-interface LogEntry {
-  time: string;
-  method: string;
-  dest: string;
-  status: number;
-  latency: string;
-}
-
-function parseLogEntry(line: string): LogEntry {
-  const torMatch = line.match(/^\[tor\]\s*(.+?\[(\w+)\]\s*(.+))$/);
-  if (torMatch) {
-    return {
-      time: "—",
-      method: torMatch[2]?.toUpperCase() ?? "TOR",
-      dest: torMatch[3] ?? torMatch[1],
-      status: 0,
-      latency: "—",
-    };
-  }
-
-  const connectMatch = line.match(/CONNECT\s+([^\s:]+):?(\d*)/i);
-  if (connectMatch) {
-    return {
-      time: "—",
-      method: "CONNECT",
-      dest: connectMatch[1],
-      status: 200,
-      latency: "—",
-    };
-  }
-  return {
-    time: "—",
-    method: "LOG",
-    dest: line,
-    status: 0,
-    latency: "—",
-  };
+function formatConnTime(ms: number): string {
+  const d = new Date(ms);
+  return d.toLocaleTimeString(undefined, {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+  });
 }
 
 function CopyIcon({ size = 14 }: { size?: number }) {
@@ -153,22 +124,35 @@ export default function ProxyDetailPage() {
 
   const instance = instances.find((i) => i.id === id);
 
-  const [logs, setLogs] = useState<string[]>([]);
+  const [connectionLogs, setConnectionLogs] = useState<ConnectionLogEntry[]>([]);
 
   useEffect(() => {
     if (!id) return;
     const fetchLogs = async () => {
       try {
-        const result = await invoke<string[]>("get_instance_logs", { id });
-        setLogs(result);
+        const result = await invoke<ConnectionLogEntry[]>("get_connection_logs", {
+          id,
+          limit: 500,
+        });
+        setConnectionLogs(result);
       } catch {
-        
+        setConnectionLogs([]);
       }
     };
     fetchLogs();
     const interval = setInterval(fetchLogs, 2000);
     return () => clearInterval(interval);
   }, [id]);
+
+  const handleClearConnectionLogs = async () => {
+    if (!id) return;
+    try {
+      await invoke("clear_connection_logs", { id });
+      setConnectionLogs([]);
+    } catch (err) {
+      console.error("clear_connection_logs failed:", err);
+    }
+  };
 
   const [editing, setEditing] = useState(false);
   const [newName, setNewName] = useState("");
@@ -361,10 +345,14 @@ export default function ProxyDetailPage() {
     (v) => (v > 0 ? 15 + (v / maxLatency) * 80 : 4),
   );
 
-  const parsedLogs = logs.map(parseLogEntry).reverse();
-  const visibleLogs = showAllLogs ? parsedLogs : parsedLogs.slice(0, 10);
+  const visibleConnectionLogs = showAllLogs
+    ? connectionLogs
+    : connectionLogs.slice(0, 10);
 
-  const countryFlag = detectCountryFlag(instance.name);
+  const upstreamFlag = instance.upstream_country?.country_code
+    ? codeToFlag(instance.upstream_country.country_code)
+    : null;
+  const countryFlag = upstreamFlag ?? detectCountryFlag(instance.name);
   const initials = getInitials(instance.name);
 
   return (
@@ -694,17 +682,26 @@ export default function ProxyDetailPage() {
 
         {}
         <div className="col-span-12 lg:col-span-8 bg-surface-card border border-border rounded-card p-6 shadow-card">
-          <div className="text-[1rem] font-semibold mb-5 flex items-center justify-between">
-            Activity Logs
-            {parsedLogs.length > 10 && (
+          <div className="text-[1rem] font-semibold mb-5 flex items-center justify-between gap-3 flex-wrap">
+            <span>Connection log</span>
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => setShowAllLogs(!showAllLogs)}
-                className="text-[0.75rem] text-foreground-muted font-normal cursor-pointer hover:text-foreground transition-colors"
+                onClick={() => void handleClearConnectionLogs()}
+                className="text-[0.75rem] px-3 py-1.5 rounded-button border border-border text-foreground-muted hover:text-foreground hover:border-border-focus transition-colors"
               >
-                {showAllLogs ? "Show Less" : "View All"}
+                Clear log
               </button>
-            )}
+              {connectionLogs.length > 10 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllLogs(!showAllLogs)}
+                  className="text-[0.75rem] text-foreground-muted font-normal cursor-pointer hover:text-foreground transition-colors"
+                >
+                  {showAllLogs ? "Show Less" : "View All"}
+                </button>
+              )}
+            </div>
           </div>
 
           {}
@@ -716,53 +713,73 @@ export default function ProxyDetailPage() {
                     TIME
                   </th>
                   <th className="text-left text-[0.75rem] text-foreground-muted font-medium pb-3 border-b border-border">
-                    METHOD
+                    PROTOCOL
                   </th>
                   <th className="text-left text-[0.75rem] text-foreground-muted font-medium pb-3 border-b border-border">
                     DESTINATION
                   </th>
                   <th className="text-left text-[0.75rem] text-foreground-muted font-medium pb-3 border-b border-border">
-                    STATUS
+                    BYTES
                   </th>
                   <th className="text-left text-[0.75rem] text-foreground-muted font-medium pb-3 border-b border-border">
-                    LATENCY
+                    DURATION
+                  </th>
+                  <th className="text-left text-[0.75rem] text-foreground-muted font-medium pb-3 border-b border-border">
+                    COUNTRY
+                  </th>
+                  <th className="text-left text-[0.75rem] text-foreground-muted font-medium pb-3 border-b border-border">
+                    STATUS
                   </th>
                 </tr>
               </thead>
               <tbody>
-                {visibleLogs.length > 0 ? (
-                  visibleLogs.map((row, i) => (
-                    <tr key={i}>
-                      <td className="py-4 border-b border-border text-[0.8125rem] text-foreground-muted">
-                        {row.time}
+                {visibleConnectionLogs.length > 0 ? (
+                  visibleConnectionLogs.map((row, i) => (
+                    <tr key={`${row.timestamp_ms}-${i}`}>
+                      <td className="py-4 border-b border-border text-[0.8125rem] text-foreground-muted whitespace-nowrap">
+                        {formatConnTime(row.timestamp_ms)}
                       </td>
                       <td className="py-4 border-b border-border text-[0.8125rem]">
-                        <span className="method-badge">{row.method}</span>
+                        <span className="method-badge">{row.protocol}</span>
                       </td>
-                      <td className="py-4 border-b border-border text-[0.8125rem] font-mono">
-                        {row.dest}
+                      <td className="py-4 border-b border-border text-[0.8125rem] font-mono break-all">
+                        {row.target_host}
+                      </td>
+                      <td className="py-4 border-b border-border text-[0.8125rem] text-foreground-muted whitespace-nowrap">
+                        {formatBytes(row.bytes_sent + row.bytes_received)}
+                      </td>
+                      <td className="py-4 border-b border-border text-[0.8125rem] text-foreground-muted whitespace-nowrap">
+                        {row.duration_ms > 0 ? `${row.duration_ms}ms` : "—"}
                       </td>
                       <td className="py-4 border-b border-border text-[0.8125rem]">
-                        {row.status > 0 ? (
-                          <span className={`font-mono font-semibold ${row.status < 300 ? "status-success" : row.status < 400 ? "status-warning" : "status-error"}`}>
-                            {row.status}
+                        {row.country_code ? (
+                          <span title={row.country_code}>
+                            {codeToFlag(row.country_code) || row.country_code}
                           </span>
                         ) : (
                           <span className="text-foreground-muted">—</span>
                         )}
                       </td>
                       <td className="py-4 border-b border-border text-[0.8125rem]">
-                        {row.latency}
+                        <span
+                          className={
+                            row.success
+                              ? "font-mono font-semibold status-success"
+                              : "font-mono font-semibold status-error"
+                          }
+                        >
+                          {row.success ? "OK" : "FAIL"}
+                        </span>
                       </td>
                     </tr>
                   ))
                 ) : (
                   <tr>
                     <td
-                      colSpan={5}
+                      colSpan={7}
                       className="py-8 text-center text-foreground-muted text-[0.8125rem]"
                     >
-                      No activity — start the proxy to see traffic logs
+                      No connections yet — start the proxy and route traffic to see entries
                     </td>
                   </tr>
                 )}

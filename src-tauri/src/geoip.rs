@@ -1,10 +1,11 @@
 use crate::speed_test::ProxyWithSpeed;
 use maxminddb::geoip2;
+use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
 use std::net::IpAddr;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CountryInfo {
     pub country_code: String,
     pub country_name: Option<String>,
@@ -81,4 +82,23 @@ pub async fn filter_by_countries(
         }
     }
     filtered
+}
+
+/// Filter plain proxies by GeoIP country (used when latency is unknown).
+pub async fn filter_plain_proxies_by_countries(
+    proxies: Vec<crate::proxy_type::Proxy>,
+    country_codes: &[String],
+) -> Vec<crate::proxy_type::Proxy> {
+    let wrapped: Vec<ProxyWithSpeed> = proxies
+        .into_iter()
+        .map(|proxy| ProxyWithSpeed {
+            proxy,
+            latency: std::time::Duration::ZERO,
+        })
+        .collect();
+    filter_by_countries(wrapped, country_codes)
+        .await
+        .into_iter()
+        .map(|p| p.proxy)
+        .collect()
 }

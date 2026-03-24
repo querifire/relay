@@ -1,5 +1,6 @@
 use crate::anonymity_check::AnonymityLevel;
 use crate::cred_encrypt;
+use crate::geoip::CountryInfo;
 use crate::proxy_chain::ProxyChainConfig;
 use crate::proxy_type::{Proxy, ProxyMode, ProxyProtocol};
 use parking_lot::{Mutex as SyncMutex, RwLock};
@@ -22,6 +23,28 @@ pub fn push_to_sink(sink: &LogSink, msg: impl Into<String>) {
 }
 
 pub type LogSink = Arc<SyncMutex<VecDeque<String>>>;
+pub type ConnectionSink = Arc<SyncMutex<VecDeque<ConnectionLogEntry>>>;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConnectionLogEntry {
+    pub timestamp_ms: u64,
+    pub target_host: String,
+    pub protocol: String,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub duration_ms: u64,
+    pub success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
+}
+
+pub fn push_connection_entry(sink: &ConnectionSink, entry: ConnectionLogEntry) {
+    let mut logs = sink.lock();
+    logs.push_back(entry);
+    while logs.len() > MAX_LOGS {
+        logs.pop_front();
+    }
+}
 
 #[derive(Debug)]
 pub struct ProxyStats {
@@ -139,6 +162,10 @@ pub struct ProxyInstanceInfo {
     pub anonymity_level: Option<AnonymityLevel>,
     
     pub proxy_chain: Option<ProxyChainConfig>,
+
+    /// GeoIP for current upstream (filled by API layer, not persisted).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_country: Option<CountryInfo>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -214,6 +241,7 @@ pub struct ProxyInstance {
     pub discovery_token: Option<CancellationToken>,
     pub handle: Option<JoinHandle<anyhow::Result<()>>>,
     pub logs: LogSink,
+    pub connection_logs: ConnectionSink,
     pub stats: Arc<ProxyStats>,
 }
 
@@ -259,6 +287,7 @@ impl ProxyInstance {
             discovery_token: None,
             handle: None,
             logs: Arc::new(SyncMutex::new(VecDeque::new())),
+            connection_logs: Arc::new(SyncMutex::new(VecDeque::new())),
             stats: Arc::new(ProxyStats::new()),
         }
     }
@@ -294,6 +323,7 @@ impl ProxyInstance {
             discovery_token: None,
             handle: None,
             logs: Arc::new(SyncMutex::new(VecDeque::new())),
+            connection_logs: Arc::new(SyncMutex::new(VecDeque::new())),
             stats: Arc::new(ProxyStats::new()),
         }
     }
@@ -318,6 +348,7 @@ impl ProxyInstance {
             auto_start_on_boot: self.auto_start_on_boot,
             anonymity_level: self.anonymity_level.read().clone(),
             proxy_chain: self.proxy_chain.clone(),
+            upstream_country: None,
         }
     }
 
@@ -355,5 +386,18 @@ impl ProxyInstance {
 
     pub fn get_logs(&self) -> Vec<String> {
         self.logs.lock().iter().cloned().collect()
+    }
+
+    pub fn get_connection_logs(&self, limit: Option<usize>) -> Vec<ConnectionLogEntry> {
+        let guard = self.connection_logs.lock();
+        let mut v: Vec<ConnectionLogEntry> = guard.iter().rev().cloned().collect();
+        if let Some(l) = limit {
+            v.truncate(l);
+        }
+        v
+    }
+
+    pub fn clear_connection_logs(&self) {
+        self.connection_logs.lock().clear();
     }
 }
